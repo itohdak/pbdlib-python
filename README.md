@@ -3,17 +3,15 @@
 
 Pbdlib is a python library for robot programming by demonstration. The goal is to provide users with an easy to use library of algorithms that can be used to learn movement primitives using probabilistic tools.
 
-The algorithms implemented in the library are developed by the Learning and Interaction group at the Italian Institute of Technology (IIT) and the IDIAP Research Insitute in Switzerland. 
+This Python version of Pbdlib is maintained by Emmanuel Pignat at the Idiap Research Institute. Pbdlib is a collection of codes available in different languages and developed as a joint effort between the Idiap Research Institute and the Italian Institute of Technology (IIT). 
 
-For more information see http://www.programming-by-demonstration.org.
+For more information see http://www.idiap.ch/software/pbdlib/.
 
 ## References
 
-If you find these codes useful for your research, please acknowledge the authors by citing this academic publication.
+If you find these codes useful for your research, please acknowledge the authors by citing:
+Pignat, E. and Calinon, S. (2017). [Learning adaptive dressing assistance from human demonstration](http://doi.org/10.1016/j.robot.2017.03.017). Robotics and Autonomous Systems 93, 61-75.
 
-[Learning adaptive dressing assistance from human demonstration](http://doi.org/10.1016/j.robot.2017.03.017)
-
-Emmanuel Pignat, March 2016
 
 # Installation
 
@@ -35,9 +33,8 @@ This requires to [install Jupyter](http://jupyter.org/install.html), which you s
 ### Launching the notebooks
 
 Launch jupyter server with:
-    
-    cd pbdlib/tutorial
-    jupyter notebook
+
+    jupyter notebook tutorial/
 
 Then navigate through folders and click on desired notebook.
 
