@@ -10,6 +10,7 @@ For more information see http://www.idiap.ch/software/pbdlib/.
 ## References
 
 If you find these codes useful for your research, please acknowledge the authors by citing:
+
 Pignat, E. and Calinon, S. (2017). [Learning adaptive dressing assistance from human demonstration](http://doi.org/10.1016/j.robot.2017.03.017). Robotics and Autonomous Systems 93, 61-75.
 
 
