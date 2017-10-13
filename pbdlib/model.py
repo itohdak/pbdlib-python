@@ -1,5 +1,5 @@
 import numpy as np
-from pybdlib.functions import *
+from functions import *
 
 class Model(object):
 	"""

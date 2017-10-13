@@ -251,8 +251,7 @@ def mvn_pdf(x, mu, sigma_chol, lmbda, sigma=None, reg=None):
 	# 	np.log(sigma_chol[i].diagonal(axis1=0, axis2=1)), axis=0)
 	# 				   for i in range(N)])
 
-
-def multi_variate_normal(x, mu, sigma, log=True, gmm=False):
+def multi_variate_normal(x, mu, sigma, log=True, gmm=False, lmbda=None):
 	"""
 	Multivariatve normal distribution PDF
 
@@ -263,17 +262,23 @@ def multi_variate_normal(x, mu, sigma, log=True, gmm=False):
 	:return:
 	"""
 	if not gmm:
-		D = mu.shape[0]
+		if type(sigma) is float:
+			sigma = np.array(sigma, ndmin=2)
+		if type(mu) is float:
+			mu = np.array(mu, ndmin=1)
+		sigma = sigma[None, None] if sigma.shape == () else sigma
+		mu = mu[None] if mu.shape == () else mu
+		x = x[:, None] if x.ndim == 1 else x
 
 		dx = mu - x
-		lmbda_ = np.linalg.inv(sigma)
+		lmbda_ = np.linalg.inv(sigma) if lmbda is None else lmbda
 
 		log_lik = -0.5 * np.einsum('...j,...j', dx, np.einsum('...jk,...j->...k', lmbda_, dx)) \
 			- 0.5 * np.log(np.linalg.det(2 * np.pi * sigma))
-
 		return log_lik if log else np.exp(log_lik)
 	else:
 		raise NotImplementedError
+
 
 
 	# # Check dimension of data
