@@ -16,6 +16,8 @@ Pignat, E. and Calinon, S. (2017). [Learning adaptive dressing assistance from h
 
 # Installation
 
+This requires v2.7 of Python.
+
 Following these instructions install the library without copying the files, allowing to edit the sources files without reinstalling.
 
     git clone git@gitlab.idiap.ch:epignat/pbdlib.git
@@ -26,12 +28,7 @@ If pip is not install, you can get it that way:
 
     sudo apt-get install python-pip
 
-## Notebooks-tutorials
-
-### Requirement
-This requires to [install Jupyter](http://jupyter.org/install.html), which you should already have if you [installed Anaconda](https://www.continuum.io/downloads). Please follow the links for installation instructions.
-
-### Launching the notebooks
+## Launching the notebooks tutorial
 
 Launch jupyter server with:
 
@@ -41,6 +38,7 @@ Then navigate through folders and click on desired notebook.
 
 | Filename | Description |
 |----------|-------------|
-| pbdlib overview.ipynb| Overview of the main functionalities of pbdlib.|
-| hmm for regression.ipynb| Demonstrate the advantages of encoding a time dependence in a regression problem, through an HMM structure.|
+| pbdlib - basics.ipynb| Overview of the main functionalities of pbdlib.|
+| pbdlib - lqr.ipynb| Linear quadratic regulator to regerate trajectories.|
+| pbdlib - Multiple coordinate systems.ipynb| This example shows how motions can adapt to various positions and orientations of objects by projecting the demonstrations in several coordinate systems.|
 
