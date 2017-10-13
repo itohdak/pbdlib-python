@@ -7,8 +7,8 @@ from .hsmm import HSMM
 from .model import Model
 from .mvn import *
 from .plot import *
-from .tp_hmm import TP_HMM
 from .pylqr import *
+from .poglqr import PoGLQR
 
 import utils
 import plot

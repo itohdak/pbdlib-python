@@ -1,9 +1,16 @@
 import numpy as np
 prec_min = 1e-15
+import sys
+from utils.gaussian_utils import gaussian_conditioning
+from functions import mvn_pdf
+from functions import multi_variate_normal
+import pybdlib as pbd
 
 class MVN(object):
-	def __init__(self, mu=None, sigma=None, lmbda=None, lmbda_ns=None, sigma_cv=None):
+	def __init__(self, mu=None, sigma=None, lmbda=None, lmbda_ns=None, sigma_cv=None, nb_dim=2):
 		"""
+		Multivariate Normal Distribution
+
 
 		:param mu:		np.array([nb_dim])
 			Mean vector
@@ -15,65 +22,179 @@ class MVN(object):
 		:param sigma_cv:
 		"""
 
-		self.mu = mu
-		self.sigma = sigma
-
-		if sigma is None and lmbda is not None:
-			self.sigma = np.linalg.inv(lmbda)
-			self.lmbda = lmbda
-		elif lmbda is None and sigma is not None:
-			self.lmbda = np.linalg.inv(self.sigma)
-		else:
-			self.lmbda = lmbda
-
+		self._mu = mu
+		self._sigma = sigma
+		self._lmbda = lmbda
+		self._sigma_chol = None
+		self._eta = None
 		#
 		self.lmbda_ns = lmbda_ns
 		self.sigma_cv = sigma_cv
 
-		self.nb_dim = self.mu.shape[0]
+		self._lmbdaT = None
+		self._muT = None
 
-	def transform(self, A, b, dA=None, db=None):
+		self.nb_dim = self._mu.shape[0] if self._mu is not None else nb_dim
+
+	@property
+	def eta(self):
+		"""
+		Natural parameters eta = lambda.dot(mu)
+
+		:return:
+		"""
+		if self._eta is None:
+			self._eta = self.lmbda.dot(self.mu)
+
+		return self._eta
+
+	@property
+	def mu(self):
+		return self._mu
+
+	@mu.setter
+	def mu(self, value):
+		self.nb_dim = value.shape[0]
+		self._mu = value
+		self._eta = None
+
+	@property
+	def sigma(self):
+		if self._sigma is None and not self._lmbda is None:
+			try:
+				self._sigma = np.linalg.inv(self._lmbda)
+				# except np.linalg.LinAlgError:
+			except np.linalg.LinAlgError:
+				self._sigma = np.linalg.inv(self._lmbda + prec_min * np.eye(self._lmbda.shape[0]))
+			except:
+				print("Unexpected error:", sys.exc_info()[0])
+				raise
+
+
+		return self._sigma
+
+	@sigma.setter
+	def sigma(self, value):
+		self.nb_dim = value.shape[0]
+		self._lmbda = None
+		self._sigma_chol = None
+		self._sigma = value
+		self._eta = None
+
+
+	@property
+	def muT(self):
+		"""
+		Returns muT-b
+		:return:
+		"""
+		if self._muT is not None:
+			return self._muT
+		else:
+			return self.mu
+
+	@property
+	def lmbdaT(self):
+		"""
+		Returns A^T.dot(lmbda)
+		:return:
+		"""
+		if self._lmbdaT is not None:
+			return self._lmbdaT
+		else:
+			return self.lmbda
+
+	@property
+	def lmbda(self):
+		if self._lmbda is None and not self._sigma is None:
+			self._lmbda = np.linalg.inv(self._sigma)
+		return self._lmbda
+
+	@lmbda.setter
+	def lmbda(self, value):
+		self._sigma = None  # reset sigma
+		self._sigma_chol = None
+		self._lmbda = value
+		self._eta = None
+
+	@property
+	def sigma_chol(self):
+		if self.sigma is None:
+			return None
+		else:
+			if self._sigma_chol is None:
+				self._sigma_chol = np.linalg.cholesky(self.sigma)
+			return self._sigma_chol
+
+	def ml(self, data):
+		self.mu = np.mean(data, axis=0)
+		self.sigma = np.cov(data.T)
+		self.lmbda = np.linalg.inv(self.sigma)
+
+	def log_prob(self, x):
+		return multi_variate_normal(x, self.mu, self.sigma)
+
+	def transform(self, A, b=None, dA=None, db=None):
+		if b is None: b = np.zeros(A.shape[0])
 		if dA is None:
 			return MVN(mu=A.dot(self.mu) + b, sigma=A.dot(self.sigma).dot(A.T))
-
 		else:
-			if self.nb_dim == 2:
-				Sr = dA * np.array([[0, -1.], [1., 0.]])
-			elif self.nb_dim == 3:
-				Sr = np.array([[0., -1., 1.],[1., 0., -1.],[-1., 1., 0.]])
-			else:
-				print "Did you just invented 4 dimensional space ???"
-				raise ValueError
+			return self.transform_uncertainty(A, b, dA=None, db=None)
 
+	def inv_transform(self, A, b):
+		"""
 
-			ds = Sr.dot(A).dot(self.mu)
-			ds = np.outer(ds, ds)
+		:param A:		[np.array((nb_dim_expert, nb_dim_data))]
+			Transformation under which the expert was seeing the data: A.dot(x)
+		:param b: 		[np.array()]
+		:return:
+		"""
+		A_pinv = np.linalg.pinv(A)
+		lmbda = A.T.dot(self.lmbda).dot(A)
 
-			return MVN(mu=A.dot(self.mu) + b,
-					   sigma=A.dot(self.sigma).dot(A.T) + ds + db * np.eye(2))
+		return MVN(mu=A_pinv.dot(self.mu - b), lmbda=lmbda)
 
-	def transf(self, A, b, min_precision=False):
-		self.mu = np.linalg.pinv(A).dot(self.mu - b)
-		self.lmbda = A.T.dot(self.lmbda).dot(A)
+	def inv_trans_s(self, A, b):
+		"""
 
-		if min_precision:
-			self.sigma = np.linalg.inv(self.lmbda + prec_min * np.eye(self.lmbda.shape[0]))
+		:param A:
+		:param b:
+		:return:
+		"""
+		mvn = MVN(nb_dim=A.shape[1])
+		mvn._muT = self.mu - b
+		mvn._lmbdaT = A.T.dot(self.lmbda)
+		mvn.lmbda = A.T.dot(self.lmbda).dot(A)
+
+		return mvn
+
+	def condition(self, data, dim_in, dim_out):
+		mu, sigma = gaussian_conditioning(
+			self.mu, self.sigma, data, dim_in, dim_out)
+
+		if data.ndim == 1:
+			conditional_mvn = MVN(mu=mu[0], sigma=sigma[0])
 		else:
-			self.sigma = np.linalg.inv(self.lmbda)
+			conditional_mvn = pbd.GMM()
+			conditional_mvn.mu, conditional_mvn.sigma = mu, sigma
 
-		if self.lmbda_ns is not None:
-			self.lmbda_ns = A.T.dot(self.lmbda_ns).dot(A)
+		return conditional_mvn
 
-		if self.sigma_cv is not None:
-			self.sigma_cv = A.T.dot(self.sigma_cv).dot(A)
+	def __add__(self, other):
+		"""
+		Distribution of the sum of two random variables normally distributed
 
-		if min_precision is not None:
-			self.lmbda += np.eye(self.lmbda.shape[0]) * min_precision
+		:param other:
+		:return:
+		"""
+		assert self.mu.shape == other.mu.shape, "MVNs should be of same dimensions"
 
-			if self.lmbda_ns is not None:
-				self.lmbda_ns += np.eye(self.lmbda.shape[0]) * min_precision
+		mvn_sum = type(self)()
 
+		mvn_sum.mu = self.mu + other.mu
+		mvn_sum.sigma = self.sigma + other.sigma
 
+		return mvn_sum
 
 	def __mul__(self, other):
 		"""
@@ -81,16 +202,20 @@ class MVN(object):
 		:param other:
 		:return:
 		"""
+
+		if isinstance(other, np.ndarray):
+			return self.inv_transform(other, np.zeros(self.nb_dim))
+
 		assert all([self.lmbda is not None, other.lmbda is not None]), "Precision not defined"
 
 
-		prod = MVN(self.mu)
+		prod = type(self)()
 		prod.mu = self.lmbda.dot(self.mu) + other.lmbda.dot(other.mu)
 		prod.lmbda = self.lmbda + other.lmbda
 		prod.sigma = np.linalg.inv(prod.lmbda)
 
-		prod.mu = prod.sigma.dot(prod.mu)
-		# prod.mu = np.linalg.solve(prod.lmbda, prod.mu)
+		# prod.mu = prod.sigma.dot(prod.mu)
+		prod.mu = np.linalg.solve(prod.lmbda, prod.mu)
 
 		return prod
 
@@ -100,51 +225,32 @@ class MVN(object):
 		:param other:
 		:return:
 		"""
+		if isinstance(other, float):
+			mvn_ = type(self)(mu=other * self.mu, sigma=self.sigma)
+			return mvn_
+
+
 		return self.__mul__(other, self)
-
-	def __pow__(self, other):
-		"""
-		Product of MVN with bluffing experts
-		:param power:
-		:param modulo:
-		:return:
-		"""
-		assert all([self.lmbda_ns is not None, other.lmbda_ns is not None]), "Bluffing precision not defined"
-
-		prod = MVN(self.mu)
-
-		prod.mu = self.lmbda_ns.dot(self.mu) + other.lmbda_ns.dot(other.mu)
-		prod.lmbda_ns = self.lmbda_ns + other.lmbda_ns
-
-		prod.lmbda = self.lmbda + other.lmbda
-		prod.sigma = np.linalg.inv(prod.lmbda)
-
-		prod.mu = np.linalg.inv(prod.lmbda_ns).dot(prod.mu)
-
-
-		return prod
 
 	def __mod__(self, other):
 		"""
-		Product of MVN with bluffing experts
-		:param power:
-		:param modulo:
+		Product of transformed experts with elimination of pseudo-inverse
+
+		:param other:
 		:return:
 		"""
-		assert all([self.sigma_cv is not None, other.sigma_cv is not None]), "Bluffing precision not defined"
 
-		prod = MVN(self.mu)
-
-		prod.mu = (self.sigma_cv + self.lmbda).dot(self.mu) + (other.sigma_cv + other.lmbda).dot(other.mu)
-		prod.lmbda_cv = self.lmbda + self.sigma_cv + other.lmbda + other.sigma_cv
-
-		prod.sigma_cv = self.sigma_cv + other.sigma_cv
-
-		# prod.lmbda = self.lmbda + other.lmbda
-		prod.lmbda = prod.lmbda_cv
+		prod = type(self)()
+		prod.lmbda = self.lmbda + other.lmbda
 		prod.sigma = np.linalg.inv(prod.lmbda)
 
-		prod.mu = np.linalg.inv(prod.lmbda_cv).dot(prod.mu)
-
+		prod.mu = prod.sigma.dot(self.lmbdaT.dot(self.muT) + other.lmbdaT.dot(other.muT))
 
 		return prod
+
+	def sample(self, size=None):
+		return np.random.multivariate_normal(self.mu, self.sigma, size=size)
+
+
+	def pdf(self, x):
+		return mvn_pdf(x, self.mu[None], self.sigma_chol[None], self.lmbda[None])

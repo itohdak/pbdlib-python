@@ -1,130 +1,211 @@
 import numpy as np
+from model import *
+from functions import multi_variate_normal
+from scipy.linalg import block_diag
 
-from .functions import *
-from .model import *
-
-
-import math
-from numpy.linalg import inv, pinv, norm, det
-import sys
+from termcolor import colored
+from mvn import MVN
 
 
 class GMM(Model):
-	def __init__(self, nb_states=1, nb_dim=None, nb_features=1):
-		Model.__init__(self, nb_states)
-		self.nb_dim = nb_dim
-		self.nb_features = nb_features
-		self.features_dyn = None
-		self.publish_init = False  # flag to indicate that publishing was not init
+	def __init__(self, nb_states=1, nb_dim=None, init_zeros=False):
+		Model.__init__(self, nb_states, nb_dim)
+		# flag to indicate that publishing was not init
+		self.publish_init = False
+
+		if init_zeros:
+			self.init_zeros()
 
 
+	def moment_matching(self, h):
+		"""
+		Perform moment matching to approximate a mixture of Gaussian as a Gaussian
+		:param h: 		np.array([nb_timesteps, nb_states])
+			Activations of each states for different timesteps
+		:return:
+		"""
+		if h.ndim == 1:
+			h = h[None]
 
-	def ros_publish(self, model_publisher):
-		from baxter_learning.msg import GMM_msgs
+		mus = np.einsum('ak,ki->ai', h, self.mu)
+		dmus = self.mu[None] - mus[:, None] # nb_timesteps, nb_states, nb_dim
+		sigmas = np.einsum('ak,kij->aij', h, self.sigma) + \
+				 np.einsum('ak,akij->aij',h , np.einsum('aki,akj->akij', dmus, dmus))
 
-		msg = GMM_msgs()
-		msg.nb_dim = self.nb_dim
-		msg.nb_features = self.nb_features
-		msg.nb_states = self.nb_states
+		return mus, sigmas
 
-		msg.Mu = self.Mu.flatten()
-		msg.Priors = self.Priors.flatten()
-		msg.Sigma = self.Sigma.flatten()
-		msg.Lambda = self.Lambda.flatten()
 
-		model_publisher.publish(msg)
+	def __mul__(self, other):
+		"""
+		Renormalized product of Gaussians, component by component
 
-	def ros_cb(self, GMM_msg):
-		self.nb_dim = GMM_msg.nb_dim
-		self.nb_features = GMM_msg.nb_features
-		self.nb_states = GMM_msg.nb_states
+		:param other:
+		:return:
+		"""
+		gmm = GMM(nb_dim=self.nb_dim, nb_states=self.nb_states)
+		gmm.priors = self.priors
+		gmm.mu = np.einsum('aij,aj->ai', self.lmbda, self.mu) + \
+				 np.einsum('aij,aj->ai', other.lmbda, other.mu)
 
-		self.Priors = GMM_msg.Priors
-		self.Mu = GMM_msg.Mu.reshape(self.nb_dim, self.nb_states)
-		self.Sigma = GMM_msg.Sigma.reshape(self.nb_dim, self.nb_dim, self.nb_states)
-		self.Lambda = GMM_msg.Lambda.reshape(self.nb_dim, self.nb_dim, self.nb_states)
+		gmm.lmbda = self.lmbda + other.lmbda
 
-	def lintrans(self, A, b, Sigma_b=None):
+		gmm.mu = np.einsum('aij,aj->ai', gmm.sigma, gmm.mu)
 
-		dim = self.nb_dim/self.nb_features
+		return gmm
 
-		gmmt = GMM(self.nb_states,self.nb_dim)
-		if self.nb_features == 1:
-			gmmt.Mu = (A.dot(self.Mu) + b[:,np.newaxis])
+	def marginal_model(self, dims):
+		"""
+		Get a GMM of a slice of this GMM
+		:param dims:
+		:type dims: slice
+		:return:
+		"""
+		gmm = GMM(nb_dim=dims.stop-dims.start, nb_states=self.nb_states)
+		gmm.priors = self.priors
+		gmm.mu = self.mu[:, dims]
+		gmm.sigma = self.sigma[:, dims, dims]
+
+		return gmm
+
+	def lintrans(self, A, b):
+		"""
+		Linear transformation of a GMM
+
+		:param A:		[np.array(nb_dim, nb_dim)]
+		:param b: 		[np.array(nb_dim)]
+		:return:
+		"""
+
+		gmm = GMM(nb_dim=self.nb_dim, nb_states=self.nb_states)
+		gmm.priors = self.priors
+		gmm.mu = np.einsum('ij,aj->ai', A, self.mu) + b
+		gmm.lmbda = np.einsum('aij,kj->aik',
+								 np.einsum('ij,ajk->aik', A, self.lmbda), A)
+
+		return gmm
+
+	def concatenate_gaussian(self, q, get_mvn=True):
+		"""
+		Get a concatenated-block-diagonal replication of the GMM with sequence of state
+		given by q.
+
+		:param q: 			[list of int]
+		:param get_mvn: 	[bool]
+
+
+		:return:
+		"""
+		if not get_mvn:
+			return np.concatenate([self.mu[i] for i in q]), block_diag(*[self.sigma[i] for i in q])
 		else:
-			gmmt.Mu = np.empty(self.Mu.shape)
-			for k, relatif in enumerate(self.features_dyn):
-				if relatif:
-					gmmt.Mu[k*dim:(k+1)*dim] = (A.dot(self.Mu[k*dim:(k+1)*dim]))
-				else:
-					gmmt.Mu[k*dim:(k+1)*dim] = (A.dot(self.Mu[k*dim:(k+1)*dim]) + b[:,np.newaxis])
-		nb_dim = b.shape[0]
-		# self.nb_dim = nb_dim
+			mvn = MVN()
+			mvn.mu = np.concatenate([self.mu[i] for i in q])
+			mvn._sigma = block_diag(*[self.sigma[i] for i in q])
+			mvn._lmbda = block_diag(*[self.lmbda[i] for i in q])
 
-		gmmt.Sigma = np.zeros(self.Sigma.shape)
-		gmmt.Lambda = np.zeros(self.Sigma.shape)
+			return mvn
 
-		if self.nb_features == 1:
-			if Sigma_b is None:
-				for i in range(self.nb_states):
-					gmmt.Sigma[:,:,i] = A.dot(self.Sigma[:,:,i].dot(A.T))
-					gmmt.Lambda[:,:,i] = A.dot(self.Lambda[:,:,i].dot(A.T))
-			else:
-				for i in range(self.nb_states):
-					gmmt.Sigma[:, :, i] = A.dot((self.Sigma[:, :, i]+Sigma_b).dot(A.T))
-					gmmt.Lambda[:, :, i] = np.linalg.inv(gmmt.Sigma[:, :, i])
-		else:
-			if Sigma_b is None:
-				for i in range(self.nb_states):
-					for k, relatif in enumerate(self.features_dyn):
+	def compute_resp(self, demo=None, dep=None, table=None, marginal=None, ):
+		sample_size = demo.shape[0]
 
-						gmmt.Sigma[k * dim:(k + 1) * dim,k * dim:(k + 1) * dim, i] = \
-							A.dot(self.Sigma[k * dim:(k + 1) * dim,k * dim:(k + 1) * dim, i].dot(A.T))
+		B = np.ones((self.nb_states, sample_size))
 
-					gmmt.Lambda[:, :, i] = np.linalg.inv(gmmt.Sigma[:, :, i])
-			else:
-				for i in range(self.nb_states):
-					gmmt.Sigma[:, :, i] = A.dot((self.Sigma[:, :, i] + Sigma_b).dot(A.T))
-					gmmt.Lambda[:, :, i] = np.linalg.inv(gmmt.Sigma[:, :, i])
+		if marginal != []:
+			for i in range(self.nb_states):
+				mu, sigma = (self.mu, self.sigma)
+
+				if marginal is not None:
+					mu, sigma = self.get_marginal(marginal)
+
+				if dep is None:
+					B[i, :] = multi_variate_normal(demo,
+												   mu[i],
+												   sigma[i], log=False)
+				else:  # block diagonal computation
+					B[i, :] = 1.0
+					for d in dep:
+						dGrid = np.ix_([i], d, d)
+						B[[i], :] *= multi_variate_normal(demo, mu[i, d],
+														  sigma[dGrid][:, :, 0], log=False)
+		B *= self.priors[:, None]
+		return B/np.sum(B, axis=0)
+
+	def init_params_scikit(self, data):
+		from sklearn.mixture import BayesianGaussianMixture, GaussianMixture
+		gmm_init = GaussianMixture(self.nb_states, 'full', n_init=10, init_params='random')
+		gmm_init.fit(data)
+
+		self.mu = gmm_init.means_
+		self.sigma = gmm_init.covariances_
+		self.priors = gmm_init.weights_
+
+		self.Trans = np.ones((self.nb_states, self.nb_states)) * 0.01
+
+		self.init_priors = np.ones(self.nb_states) * 1. / self.nb_states
+
+	def init_params_kmeans(self, data):
+		from sklearn.cluster import KMeans
+		km_init = KMeans(n_clusters=self.nb_states)
+		km_init.fit(data)
+		self.mu = km_init.cluster_centers_
+		self.priors = np.ones(self.nb_states)/ self.nb_states
+		self.sigma = np.array([np.eye(self.nb_dim) for i in range(self.nb_states)])
+
+		self.Trans = np.ones((self.nb_states, self.nb_states)) * 0.01
+
+		self.init_priors = np.ones(self.nb_states) * 1. / self.nb_states
 
 
-		return gmmt
+	def init_params_random(self, data):
+		mu = np.mean(data, axis=0)
+		sigma = np.dot((data - mu).T, (data - mu)) / \
+				(data.shape[0] - 1)
 
-	def update_precision_matrix(self):
-		if self.Lambda is None:
-			dim = self.Sigma.shape[0]
-			self.Lambda = np.empty((self.nb_dim, self.nb_dim, self.nb_states), order='C')
+		self.mu = np.array([np.random.multivariate_normal(mu, sigma)
+			 for i in range(self.nb_states)])
 
-		for i in range(self.nb_states):
-			self.Lambda[:, :, i] = inv(self.Sigma[:, :, i])
+		self.sigma = np.array([sigma + self.reg for i in range(self.nb_states)])
 
-	# Parameters in standard form. Call with capital for PBD form
+		self.priors = np.ones(self.nb_states) / self.nb_states
 
+	def em(self, data, reg=1e-8, maxiter=100, minstepsize=1e-5, diag=False, reg_finish=False,
+		   kmeans_init=False, random_init=True, dep_mask=None):
+		"""
 
+		:param data:	 		[np.array([nb_timesteps, nb_dim])]
+		:param reg:				[list([nb_dim]) or float]
+			Regulariazation for EM
+		:param maxiter:
+		:param minstepsize:
+		:param diag:			[bool]
+			Use diagonal covariance matrices
+		:param reg_finish:		[np.array([nb_dim]) or float]
+			Regulariazation for finish step
+		:param kmeans_init:		[bool]
+			Init components with k-means.
+		:param random_init:		[bool]
+			Init components randomely.
+		:param dep_mask: 		[np.array([nb_dim, nb_dim])]
+			Composed of 0 and 1. Mask given the dependencies in the covariance matrices
+		:return:
+		"""
 
-	def em(self, data, reg=1e-8, maxiter=100, minstepsize=1e-5):
-
-		if self.Sigma is None:
-			self.Sigma = np.rollaxis(
-				np.array([np.cov(data.T)/self.nb_states for i in range(self.nb_states)]), 0, 3)
-
-
-		if self.Priors is None:
-			self.Priors = np.ones(self.nb_states)/self.nb_states
+		self.reg = reg
 
 		nb_min_steps = 5  # min num iterations
 		nb_max_steps = maxiter  # max iterations
 		max_diff_ll = minstepsize # max log-likelihood increase
 
-		min_sigma = reg * np.eye(self.nb_dim)
-
 		nb_samples = data.shape[0]
 
-		from sklearn.cluster import KMeans
-		km_init = KMeans(n_clusters=self.nb_states)
-		km_init.fit(data)
 
-		self.Mu = km_init.cluster_centers_.swapaxes(0, 1)
+
+		if random_init:
+			self.init_params_random(data)
+		elif kmeans_init:
+			self.init_params_kmeans(data)
+		else:
+			self.init_params_scikit(data)
 
 		data = data.T
 
@@ -136,80 +217,141 @@ class GMM(Model):
 			L_log = np.zeros((self.nb_states, nb_samples))
 
 			for i in range(self.nb_states):
-				L_log[i, :] = np.log(self.Priors[i]) + multi_variate_normal(data.T, self.Mu[:, i],
-												   self.Sigma[:, :, i], log=True)
-
-				# L[i, :] = self.Priors[i] * multi_variate_normal(data,
-				# 															self.Mu[:, i],
-				# 															self.Sigma[:, :,
-				# 															i])
+				L_log[i, :] = np.log(self.priors[i]) + multi_variate_normal(data.T, self.mu[i],
+												   self.sigma[i], log=True)
 
 			L = np.exp(L_log)
-
 			GAMMA = L / np.sum(L, axis=0)
 			GAMMA2 = GAMMA / np.sum(GAMMA, axis=1)[:, np.newaxis]
 
-
 			# M-step
-			self.Mu = np.einsum('ac,ic->ia', GAMMA2,
+			self.mu = np.einsum('ac,ic->ai', GAMMA2,
 									data)  # a states, c sample, i dim
 
-			dx = data[:, None] - self.Mu[:, :, None]  # nb_dim, nb_states, nb_samples
+			dx = data[None, :] - self.mu[:, :, None]  # nb_dim, nb_states, nb_samples
 
-			self.Sigma = np.einsum('acj,iac->ija', np.einsum('iac,ac->aci', dx, GAMMA2),
+			self.sigma = np.einsum('acj,aic->aij', np.einsum('aic,ac->aci', dx, GAMMA2),
 									   dx)  # a states, c sample, i-j dim
 
-			for i in range(self.nb_states):
-				self.Sigma[:, :, i] = self.Sigma[:, :, i] + min_sigma
+			self.sigma += self.reg
 
-			# print self.Sigma[:, :, i]
+			if diag:
+				self.sigma *= np.eye(self.nb_dim)
+
+			if dep_mask is not None:
+				self.sigma *= dep_mask
+
+			# print self.Sigma[:,u :, i]
 
 			# Update initial state probablility vector
-			self.Priors = np.mean(GAMMA, axis=1)
+			self.priors = np.mean(GAMMA, axis=1)
 
-			# print GAMMA2[i]
-			LL[it] = 0
 
-			LL[it] -= np.sum(L_log)
-			LL[it] = LL[it] / nb_samples
+			LL[it] = np.mean(np.log(np.sum(L, axis=0)))
 			# Check for convergence
 			if it > nb_min_steps:
 				if LL[it] - LL[it - 1] < max_diff_ll:
+					if reg_finish is not False:
+						self.sigma = np.einsum(
+							'acj,aic->aij', np.einsum('aic,ac->aci', dx, GAMMA2), dx) + reg_finish
+
+					print colored('Converged after %d iterations: %.3e' % (it, LL[it]), 'red', 'on_white')
 					return GAMMA
 
 		print "GMM did not converge before reaching max iteration. Consider augmenting the number of max iterations."
 		return GAMMA
 
-	def __mul__(self, other):
 
-		Sigma = np.zeros((self.nb_dim,self.nb_dim,self.nb_states))
-		Lambda = np.zeros((self.nb_dim,self.nb_dim,self.nb_states))
-		Mu  = np.zeros((self.nb_dim,self.nb_states))
+	def init_hmm_kbins(self, demos, dep=None, reg=1e-8, dep_mask=None):
+		"""
+		Init HMM by splitting each demos in K bins along time. Each K states of the HMM will
+		be initialized with one of the bin. It corresponds to a left-to-right HMM.
 
-		if self.Lambda is None:
-			self.update_precision_matrix()
-		if other.Lambda is None:
-			other.update_precision_matrix()
+		:param demos:	[list of np.array([nb_timestep, nb_dim])]
+		:param dep:
+		:param reg:		[float]
+		:return:
+		"""
 
+		# delimit the cluster bins for first demonstration
+		self.nb_dim = demos[0].shape[1]
+
+		self.init_zeros()
+
+		t_sep = []
+
+		for demo in demos:
+			t_sep += [map(int, np.round(np.linspace(0, demo.shape[0], self.nb_states + 1)))]
+
+		# print t_sep
 		for i in range(self.nb_states):
-			# Compute precision matrices
-			# prec_s = np.linalg.inv(self.Sigma[:,:,i])
-			# prec_o = np.linalg.inv(other.Sigma[:,:,i])
-			prec_s = self.Lambda[:, :, i]
-			prec_o = other.Lambda[:, :, i]
-			# Compute covariance of p	roduct:
-			Lambda[:,:,i] = prec_s + prec_o
-			Sigma[:,:,i] = np.linalg.inv(Lambda[:,:,i])
-			# Sigma[:,:,i] = np.linalg.inv(prec_s + prec_o)
+			data_tmp = np.empty((0, self.nb_dim))
+			inds = []
+			states_nb_data = 0   # number of datapoints assigned to state i
 
-			# Compute mean of product:
-			Mu[:,i] = Sigma[:,:,i].dot(prec_s.dot(self.Mu[:,i]) + prec_o.dot(other.Mu[:,i]))
+			# Get bins indices for each demonstration
+			for n, demo in enumerate(demos):
+				inds = range(t_sep[n][i], t_sep[n][i+1])
 
-		# Create GMM of product
-		prodgmm = GMM(self.nb_states, self.nb_dim)
-		prodgmm.Mu = Mu
-		prodgmm.Sigma = Sigma
-		prodgmm.Lambda = Lambda
+				data_tmp = np.concatenate([data_tmp, demo[inds]], axis=0)
+				states_nb_data += t_sep[n][i+1]-t_sep[n][i]
 
+			self.priors[i] = states_nb_data
+			self.mu[i] = np.mean(data_tmp, axis=0)
 
-		return prodgmm
+			if dep_mask is not None:
+				self.sigma *= dep_mask
+
+			if dep is None:
+				self.sigma[i] = np.cov(data_tmp.T) + np.eye(self.nb_dim) * reg
+			else:
+				for d in dep:
+					dGrid = np.ix_([i], d, d)
+					self.sigma[dGrid] = (np.cov(data_tmp[:, d].T) + np.eye(
+						len(d)) * reg)[:, :, np.newaxis]
+				# print self.Sigma[:,:,i]
+
+		# normalize priors
+		self.priors = self.priors / np.sum(self.priors)
+
+		# Hmm specific init
+		self.Trans = np.ones((self.nb_states, self.nb_states)) * 0.01
+
+		nb_data = np.mean([d.shape[0] for d in demos])
+
+		for i in range(self.nb_states - 1):
+			self.Trans[i, i] = 1.0 - float(self.nb_states) / nb_data
+			self.Trans[i, i + 1] = float(self.nb_states) / nb_data
+
+		self.Trans[-1, -1] = 1.0
+		self.init_priors = np.ones(self.nb_states) * 1. / self.nb_states
+
+	def mvn_pdf(self, x, reg=None):
+		"""
+
+		:param x: 			np.array([nb_samples, nb_dim])
+			samples
+		:param mu: 			np.array([nb_states, nb_dim])
+			mean vector
+		:param sigma_chol: 	np.array([nb_states, nb_dim, nb_dim])
+			cholesky decomposition of covariance matrices
+		:param lmbda: 		np.array([nb_states, nb_dim, nb_dim])
+			precision matrices
+		:return: 			np.array([nb_states, nb_samples])
+			log mvn
+		"""
+		# if len(x.shape) > 1:  # TODO implement mvn for multiple xs
+		# 	raise NotImplementedError
+		mu, lmbda_, sigma_chol_ = self.mu, self.lmbda, self.sigma_chol
+
+		if x.ndim > 1:
+			dx = mu[None] - x[:, None]  # nb_timesteps, nb_states, nb_dim
+		else:
+			dx = mu - x
+
+		eins_idx = ('baj,baj->ba', 'ajk,baj->bak') if x.ndim > 1 else (
+		'aj,aj->a', 'ajk,aj->ak')
+
+		return -0.5 * np.einsum(eins_idx[0], dx, np.einsum(eins_idx[1], lmbda_, dx)) \
+			   - mu.shape[1] / 2. * np.log(2 * np.pi) - np.sum(
+			np.log(sigma_chol_.diagonal(axis1=1, axis2=2)), axis=1)

@@ -319,7 +319,7 @@ def plot_mixture_linear_system(model, mode='glob', nb_sub=30, gmm=True, min_alph
 
 def plot_gmm(Mu, Sigma, dim=None, color=[1, 0, 0], alpha=0.5, linewidth=1, markersize=6,
 			 ax=None, empty=False, edgecolor=None, edgealpha=None,
-			 border=False, nb=1, swap=False, center=True):
+			 border=False, nb=1, swap=True, center=True):
 	''' This function displays the parameters of a Gaussian Mixture Model (GMM).
 
 	 Inputs -----------------------------------------------------------------
@@ -334,9 +334,14 @@ def plot_gmm(Mu, Sigma, dim=None, color=[1, 0, 0], alpha=0.5, linewidth=1, marke
 	'''
 
 	if (Mu.ndim == 1):
-		Mu = Mu[:, np.newaxis]
-		Sigma = Sigma[:, :, np.newaxis]
-		nbStates = 1
+		if not swap:
+			Mu = Mu[:, np.newaxis]
+			Sigma = Sigma[:, :, np.newaxis]
+			nbStates = 1
+		else:
+			Mu = Mu[np.newaxis]
+			Sigma = Sigma[np.newaxis]
+			nbStates = 1
 	else:
 		if not swap:
 			nbStates = Mu.shape[1]

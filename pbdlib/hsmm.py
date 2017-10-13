@@ -15,24 +15,56 @@ class OnlineForwardVariable():
 
 
 class HSMM(HMM):
-	def __init__(self, nb_states):
-		HMM.__init__(self, nb_states)
+	def __init__(self, nb_states=2, nb_dim=1):
+		HMM.__init__(self, nb_states, nb_dim)
+		self.Trans_Fw = np.zeros((self.nb_dim, self.nb_states))
 
-		# transition matrix for forward variable computation : you can feed with the one you want
-		self.Trans_Fw = np.zeros((nb_states, nb_states))
+		self._mu_d = None
+		self._sigma_d = None
+		self._trans_d = None
 
-	def compute_duration(self, s=None, dur_reg=2.0, data_dim=None, sequ=None, last=True):
+	@property
+	def trans_d(self):
+		return self._trans_d
+
+	@trans_d.setter
+	def trans_d(self, value):
+		self._trans_d = value
+
+	@property
+	def mu_d(self):
+		return self._mu_d
+
+	@mu_d.setter
+	def mu_d(self, value):
+		self._mu_d= value
+
+	@property
+	def sigma_d(self):
+		return self._sigma_d
+
+	@sigma_d.setter
+	def sigma_d(self, value):
+		self._sigma_d = value
+
+	def make_finish_state(self, demos, dep_mask=None):
+		state_sequ = [np.array(self.viterbi(d)) for d in demos]
+		for i, d in enumerate(demos):
+			state_sequ[i][-3:] = self.nb_states
+		super(HSMM, self).make_finish_state(demos, dep_mask)
+		self.compute_duration(sequ=state_sequ)
+
+	def compute_duration(self, demos=None, dur_reg=2.0, marginal=None, sequ=None, last=True):
 		"""
+		Empirical computation of HSMM parameters based on counting transition and durations
 
-		:param s:
+		:param demos:	[list of np.array([nb_timestep, nb_dim])]
 		:return:
 		"""
 		# reformat transition matrix: By removing self transition
 		# self.Trans_Pd = self.Trans - np.diag(np.diag(self.Trans)) + realmin
 		# self.Trans_Pd /= colvec(np.sum(self.Trans_Pd, axis=1))
 
-		if data_dim is None and s is not None:
-			data_dim = range(s[0]['Data'].shape[0])
 
 		# init duration components
 		self.Mu_Pd = np.zeros(self.nb_states)
@@ -43,17 +75,16 @@ class HSMM(HMM):
 
 		trans_list = np.zeros((self.nb_states, self.nb_states))# create a table to count the transition
 
+		s = demos if demos is not None else sequ
 		# reformat transition matrix by counting the transition
-		if s is None:
-			s = sequ
-
-
 		for j, d in enumerate(s):
 			if sequ is None:
-				state_seq_tmp = self.viterbi(d['Data'][data_dim])
+				state_seq_tmp = self.viterbi(d) if marginal is None else self.viterbi(d[:, marginal])
 			else:
 				state_seq_tmp = d.tolist()
 			prev_state = 0
+
+
 			for i, state in enumerate(state_seq_tmp):
 
 				if i == 0:	# first state of sequence :
@@ -100,158 +131,206 @@ class HSMM(HMM):
 			else:
 				self.Sigma_Pd[i] = dur_reg
 
+	def em(self, demos, **kwargs):
+		gamma = HMM.em(self, demos, **kwargs)
 
-	def compute_tp_trans_matrix(self, s , i_in, min_sigma = 1e-9, dur_reg=2.0, data_dim=None):
+		self.compute_duration(demos)
+		return gamma
+
+	def compute_messages(self, demo=None, dep=None, table=None, marginal=None, sample_size=200, p0=None):
+		if demo is None:
+			sample_size = demo.shape[0]
+		elif isinstance(demo, dict):
+			sample_size = demo['x'].shape[0]
+
+		if marginal == []:
+			alpha, beta, gamma, zeta, c = self.forward_variable_ts(sample_size, p0=p0), None, None, None, None
+		else:
+			alpha, beta, gamma, zeta, c = self.forward_variable(sample_size, demo, marginal), None, None, None, None
+
+		return alpha, beta, gamma, zeta, c
+
+
+	def forward_variable_ts(self, n_step, p0=None):
 		"""
-
-		:param s: 		List of of dict ['Data'] = np.array((nb_dim, nb_timestep))
-
-		:param i_in:	List of int
-			Dimension of the parameters of the task-parametrized transition matrix
-		:return:
-		"""
-
-		if data_dim is None:
-			data_dim = range(s[0]['Data'].shape[0])
-
-		nb_dim = len(i_in)
-		self.tp_trans = pbd.TP_TRANSITION(nb_states=self.nb_states,nb_dim=nb_dim)
-
-		# reformat transition matrix
-		self.Trans_Pd = self.Trans - np.diag(np.diag(self.Trans)) + realmin
-		self.Trans_Pd /= colvec(np.sum(self.Trans_Pd, axis=1))
-		# np.set_printoptions(precision=2,infstr='inf',linewidth=120)
-		# print self.Trans_Pd
-
-		# init duration components
-		self.Mu_Pd = np.zeros(self.nb_states)
-		self.Sigma_Pd = np.zeros(self.nb_states)
-
-		# reconstruct sequence of states from all demonstrations
-		state_seq = []
-
-		trans_param_list = [[[] for i in range(self.nb_states)]
-					for j in range(self.nb_states)]
-
-		for d in s:
-			state_seq_tmp = self.viterbi(d['Data'][data_dim])
-			prev_state = 0
-			for i, state in enumerate(state_seq_tmp):
-
-				if i == 0:	# first state of sequence :
-					pass
-				elif i == len(state_seq_tmp)-1:	# last state of sequence
-					trans_param_list[state][state] += [d['Data'][data_dim][i_in,i]]
-				elif state != prev_state:	# transition detected
-					trans_param_list[prev_state][state] += [d['Data'][data_dim][i_in,i]]
-
-				prev_state = state
-
-			state_seq += state_seq_tmp
-
-		# compute model of transition parameters : here a gaussian distribution
-		for i in range(self.nb_states):
-			for j in range(self.nb_states):
-				# if no transition detected
-				nb_trans = len(trans_param_list[i][j])
-				if nb_trans == 0:
-					self.tp_trans.Prior_Trans[i, j] = 0.0
-					self.tp_trans.Mu_Trans[:, i, j] = np.zeros(nb_dim)
-					self.tp_trans.Sigma_Trans[:, :, i, j] = np.eye( nb_dim)
-
-				else:
-					self.tp_trans.Prior_Trans[i, j] = nb_trans
-					self.tp_trans.Mu_Trans[:, i, j] = np.mean(trans_param_list[i][j],axis=0)
-					if nb_trans == 1:
-						self.tp_trans.Sigma_Trans[:, :, i, j] = min_sigma * \
-																np.eye(nb_dim)
-					else:
-						self.tp_trans.Sigma_Trans[:, :, i, j] =\
-							np.cov(np.array(trans_param_list[i][j]).T) + min_sigma * \
-																np.eye(nb_dim)
-
-			if np.sum(self.tp_trans.Prior_Trans[i, :]) > realmin:
-				self.tp_trans.Prior_Trans[i, :] /= np.sum(self.tp_trans.Prior_Trans[i, :])
-
-		self.Trans_Pd = self.tp_trans.Prior_Trans
-		# list of duration
-		stateDuration = [[] for i in range(self.nb_states)]
-
-		currState = state_seq[0]
-		cnt = 1
-
-		for i, state in enumerate(state_seq):
-			if i == len(state_seq) - 1:  # last state of sequence
-				stateDuration[currState] += [cnt]
-			elif state == currState:
-				cnt += 1
-			else:
-				stateDuration[currState] += [cnt]
-				cnt = 1
-				currState = state
-		#
-		# #print stateDuration
-		# for i in range(self.nb_states):
-		# 	self.Mu_Pd[i] = np.mean(stateDuration[i])
-		# 	self.Sigma_Pd[i] = np.std(stateDuration[i])
-		# print stateDuration
-		for i in range(self.nb_states):
-			self.Mu_Pd[i] = np.mean(stateDuration[i])
-			if len(stateDuration[i]) > 1:
-				self.Sigma_Pd[i] = np.std(stateDuration[i]) + dur_reg
-			else:
-				self.Sigma_Pd[i] = dur_reg
-
-	def _update_transition_matrix(self, tr_param):
-		for i in range(self.nb_states):
-			for j in range(self.nb_states):
-				if self.tp_trans.Prior_Trans[i,j] > realmin:
-					self.Trans_Fw[i, j] = self.tp_trans.Prior_Trans[i,j] *\
-							  multi_variate_normal(tr_param.reshape(-1,1),
-							   self.tp_trans.Mu_Trans[:,i,j], self.tp_trans.Sigma_Trans[:,:,i,j])
-				else :
-					self.Trans_Fw[i, j] = 0
-
-			# rescale to sum to one
-			if np.sum(self.Trans_Fw[i, :]) > realmin:
-				self.Trans_Fw[i, :] /= np.sum(self.Trans_Fw[i, :])
-
-	def forward_variable_ts(self, n_step, trans_type='default', statesPriors=None):
-		"""
-		To compute a forward variable for HSMM based online on time.
+		Compute forward variables without any observation of the sequence.
 
 		:param n_step: 			int
 			Number of step for forward variable computation
-		:param trans_type:		'default' or 'tp_trans'
-		:param start_priors: 	np.array((N,))
-			Priors for localizing at first step
 		:return:
 		"""
-		if trans_type == 'default':
-			self.Trans_Fw = self.Trans_Pd
-		elif trans_type == 'tp_trans':
-			# self.Trans_Fw = self.Trans_Pd
-			pass
 
-		nbD = np.round(2 * n_step/self.nb_states)
+		nbD = np.round(4* n_step/self.nb_states)
 
 		self.Pd = np.zeros((self.nb_states, nbD))
-
 		# Precomputation of duration probabilities
+
 		for i in range(self.nb_states):
-			self.Pd[i, :] = multi_variate_normal(np.arange(nbD), self.Mu_Pd[i], self.Sigma_Pd[i])
+			self.Pd[i, :] = multi_variate_normal(np.arange(nbD), self.Mu_Pd[i], self.Sigma_Pd[i], log=False)
 			self.Pd[i, :] = self.Pd[i, :] / np.sum(self.Pd[i, :])
 
 		h = np.zeros((self.nb_states, n_step))
 
-		ALPHA, S, h[:, 0] = self._fwd_init_ts(nbD, statesPriors=statesPriors)
+		ALPHA, S, h[:, 0] = self._fwd_init_ts(nbD, p0=p0)
 
 		for i in range(1, n_step):
 			ALPHA, S, h[:, i] = self._fwd_step_ts(ALPHA, S, nbD)
 
 		h /= np.sum(h, axis=0)
+		return h
+
+
+	def _fwd_init_ts(self, nbD, p0=None):
+		"""
+		Initiatize forward variable computation based only on duration (no observation)
+		:param nbD: number of time steps
+		:return:
+		"""
+		if p0 is None:
+			ALPHA = np.tile(self.init_priors, [nbD, 1]).T * self.Pd
+		else:
+			ALPHA = np.tile(p0, [nbD, 1]).T * self.Pd
+
+		S = np.dot(self.Trans_Pd.T, ALPHA[:, [0]]) # use [idx] to keep the dimension
+
+		return ALPHA, S, np.sum(ALPHA, axis=1)
+
+	def _fwd_step_ts(self, ALPHA, S, nbD):
+		"""
+		Step of forward variable computation based only on duration (no observation)
+		:return:
+		"""
+		ALPHA = np.concatenate((S[:, [-1]] * self.Pd[:, 0:nbD-1] + ALPHA[:, 1:nbD],
+								S[:, [-1]] * self.Pd[:, [nbD-1]]), axis=1)
+
+		S = np.concatenate((S, np.dot(self.Trans_Pd.T, ALPHA[:, [0]])), axis=1)
+
+		return ALPHA, S, np.sum(ALPHA, axis=1)
+
+
+	def forward_variable(self, n_step=None, demo=None, marginal=None, dep=None, p_obs=None):
+		"""
+		Compute the forward variable with some observations
+
+		:param demo: 	[np.array([nb_timestep, nb_dim])]
+		:param dep: 	[A x [B x [int]]] A list of list of dimensions
+			Each list of dimensions indicates a dependence of variables in the covariance matrix
+			E.g. [[0],[1],[2]] indicates a diagonal covariance matrix
+			E.g. [[0, 1], [2]] indicates a full covariance matrix between [0, 1] and no
+			covariance with dim [2]
+		:param table: 	np.array([nb_states, nb_demos]) - composed of 0 and 1
+			A mask that avoid some demos to be assigned to some states
+		:param marginal: [slice(dim_start, dim_end)] or []
+			If not None, compute messages with marginals probabilities
+			If [] compute messages without observations, use size
+			(can be used for time-series regression)
+		:param p_obs: 		np.array([nb_states, nb_timesteps])
+				custom observation probabilities
+		:return:
+		"""
+		if isinstance(demo, np.ndarray):
+			n_step = demo.shape[0]
+		elif isinstance(demo, dict):
+			n_step = demo['x'].shape[0]
+
+
+		nbD = np.round(4* n_step/self.nb_states)
+
+		self.Pd = np.zeros((self.nb_states, nbD))
+
+		# Precomputation of duration probabilities
+		for i in range(self.nb_states):
+			self.Pd[i, :] = multi_variate_normal(np.arange(nbD), self.Mu_Pd[i], self.Sigma_Pd[i], log=False)
+			self.Pd[i, :] = self.Pd[i, :] / np.sum(self.Pd[i, :])
+
+		# compute observation marginal probabilities
+		p_obs, _ = self.obs_likelihood(demo, dep, marginal, n_step)
+
+		self._B = p_obs
+
+		h = np.zeros((self.nb_states, n_step))
+		bmx, ALPHA, S, h[:, 0] = self._fwd_init(nbD, p_obs[:, 0])
+
+		for i in range(1, n_step):
+			bmx, ALPHA, S, h[:, i] = self._fwd_step(bmx, ALPHA, S, nbD, p_obs[:, i])
+
+		h /= np.sum(h, axis=0)
 
 		return h
+
+	def _fwd_init(self, nbD, priors):
+		"""
+
+		:param nbD:
+		:return:
+		"""
+		bmx = np.zeros((self.nb_states, 1))
+
+		Btmp = priors
+
+		ALPHA = np.tile(self.init_priors, [nbD, 1]).T * self.Pd
+
+		# r = Btmp.T * np.sum(ALPHA, axis=1)
+		r = np.dot(Btmp.T, np.sum(ALPHA, axis=1))
+
+		bmx[:, 0] = Btmp / r
+		E = bmx * ALPHA[:, [0]]
+		S = np.dot(self.Trans_Pd.T, E) # use [idx] to keep the dimension
+
+		return bmx, ALPHA, S, Btmp * np.sum(ALPHA, axis=1)
+
+	def _fwd_step(self, bmx, ALPHA, S, nbD, obs_marginal=None):
+		"""
+
+		:param bmx:
+		:param ALPHA:
+		:param S:
+		:param nbD:
+		:return:
+		"""
+
+		Btmp = obs_marginal
+
+		ALPHA = np.concatenate((S[:, [-1]] * self.Pd[:, 0:nbD-1] + bmx[:,[-1]] * ALPHA[:, 1:nbD],
+								S[:, [-1]] * self.Pd[:, [nbD-1]]), axis=1)
+
+		r = np.dot(Btmp.T, np.sum(ALPHA, axis=1))
+		bmx = np.concatenate((bmx, Btmp[:, None] / r), axis=1)
+		E = bmx[:, [-1]] * ALPHA[:, [0]]
+
+		S = np.concatenate((S, np.dot(self.Trans_Pd.T, ALPHA[:, [0]])), axis=1)
+		alpha = Btmp * np.sum(ALPHA, axis=1)
+		alpha /= np.sum(alpha)
+		return bmx, ALPHA, S, alpha
+
+	########################################################################################
+	## SANDBOX ABOVE
+	########################################################################################
+
+
+	@property
+	def Sigma_Pd(self):
+		return self.sigma_d
+
+	@Sigma_Pd.setter
+	def Sigma_Pd(self, value):
+		self.sigma_d = value
+
+	@property
+	def Mu_Pd(self):
+		return self.mu_d
+
+	@Mu_Pd.setter
+	def Mu_Pd(self, value):
+		self.mu_d = value
+
+	@property
+	def Trans_Pd(self):
+		return self.trans_d
+
+	@Trans_Pd.setter
+	def Trans_Pd(self, value):
+		self.trans_d = value
 
 	def forward_variable_priors(self, n_step, priors, tp_param=None, start_priors=None):
 		"""
@@ -305,8 +384,6 @@ class HSMM(HMM):
 
 	def online_forward_variable_prob(self, n_step, priors, tp_param=None, start_priors=None, nb_sum=None):
 		"""
-		To compute an online forward variable for HSMM. You can use it for example for localization
-		of state while reproducing.
 
 		:param n_step:			[int]
 		:param priors: 			[np.array((nb_states,))]
@@ -339,11 +416,8 @@ class HSMM(HMM):
 		# Precomputation of duration probabilities
 		for i in range(self.nb_states):
 			self.Pd[i, :] = multi_variate_normal(np.arange(self.ol.nbD), self.Mu_Pd[i],
-												 self.Sigma_Pd[i])
-			if np.sum(self.Pd[i, :]) < 1e-50:
-				self.Pd[i, :] = 1.0 / self.Pd[i, :].shape[0]
-			else:
-				self.Pd[i, :] = self.Pd[i, :] / np.sum(self.Pd[i, :])
+												 self.Sigma_Pd[i], log=False)
+			self.Pd[i, :] = self.Pd[i, :] / np.sum(self.Pd[i, :])
 
 		h = np.zeros((self.nb_states, n_step))
 
@@ -454,32 +528,6 @@ class HSMM(HMM):
 
 		return h
 
-	def _fwd_init_ts(self, nbD, statesPriors=None):
-		"""
-		Initiatize forward variable computation based only on duration (no observation)
-		:param nbD: number of time steps
-		:return:
-		"""
-		if statesPriors is None:
-			ALPHA = np.tile(colvec(self.StatesPriors), [1, nbD]) * self.Pd
-		else:
-			ALPHA = np.tile(colvec(statesPriors), [1, nbD]) * self.Pd
-
-		S = np.dot(self.Trans_Fw.T, ALPHA[:, [0]]) # use [idx] to keep the dimension
-
-		return ALPHA, S, np.sum(ALPHA, axis=1)
-
-	def _fwd_step_ts(self, ALPHA, S, nbD):
-		"""
-		Step of forward variable computation based only on duration (no observation)
-		:return:
-		"""
-		ALPHA = np.concatenate((S[:, [-1]] * self.Pd[:, 0:nbD-1] + ALPHA[:, 1:nbD],
-								S[:, [-1]] * self.Pd[:, [nbD-1]]), axis=1)
-
-		S = np.concatenate((S, np.dot(self.Trans_Fw.T, ALPHA[:, [0]])), axis=1)
-
-		return ALPHA, S, np.sum(ALPHA, axis=1)
 
 	def _fwd_init_priors(self, nbD, priors,start_priors=None):
 		"""
@@ -492,7 +540,7 @@ class HSMM(HMM):
 		Btmp = priors
 
 		if start_priors is None:
-			ALPHA = np.tile(colvec(self.StatesPriors), [1, nbD]) * self.Pd
+			ALPHA = np.tile(colvec(self.init_priors), [1, nbD]) * self.Pd
 		else:
 			ALPHA = np.tile(colvec(start_priors), [1, nbD]) * self.Pd
 		# r = Btmp.T * np.sum(ALPHA, axis=1)
@@ -543,7 +591,7 @@ class HSMM(HMM):
 
 		Btmp /= np.sum(Btmp)
 
-		ALPHA = np.tile(colvec(self.StatesPriors), [1, nbD]) * self.Pd
+		ALPHA = np.tile(colvec(self.init_priors), [1, nbD]) * self.Pd
 		# r = Btmp.T * np.sum(ALPHA, axis=1)
 		r = np.dot(Btmp.T, np.sum(ALPHA, axis=1))
 

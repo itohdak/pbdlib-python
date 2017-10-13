@@ -5,8 +5,89 @@ import matplotlib.cm as cmap
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+from scipy.special import factorial
 
 plt.style.use('ggplot')
+
+def get_canonical(nb_dim, nb_deriv=2, dt=0.01):
+
+	A1d = np.zeros((nb_deriv, nb_deriv))
+
+	for i in range(nb_deriv):
+		A1d += np.diag(np.ones(nb_deriv - i), i) * np.power(dt, i) / factorial(i)
+
+	B1d = np.zeros((nb_deriv, 1))
+	for i in range(1, nb_deriv + 1):
+		B1d[nb_deriv - i] = np.power(dt, i) / factorial(i)
+
+	return np.kron(A1d, np.eye(nb_dim)), np.kron(B1d, np.eye(nb_dim))
+
+def lifted_noise_matrix(A=None, B=None, nb_dim=3, dt=0.01, horizon=50):
+	r"""
+	Given a linear system with white noise, as in LQG,
+
+	.. math::
+		\xi_{t+1} = \mathbf{A} (\xi_t + w_i) + \mathbf{B} u_t + v_i
+
+	returns the lifted form for noise addition, s_v, s_w,
+
+	.. math::
+	    \mathbf{\xi} = \mathbf{S}_{\xi} \xi_0 + \mathbf{S}_u \mathbf{u}
+	    + \mathbf{S}_v + \mathbf{S}_w
+
+	:return: s_u
+	"""
+	if A is None or B is None:
+		A, B = get_canonical(nb_dim, 2, dt)
+
+	s_v = np.zeros((A.shape[0] * horizon, A.shape[0] * horizon))
+
+	A_p = np.eye(A.shape[0])
+	At_b_tmp = []
+	for i in range(horizon):
+		# s_xi[i * A.shape[0]:(i + 1) * A.shape[0]] = A_p
+		At_b_tmp += [A_p]
+		A_p = A_p.dot(A)
+
+	for i in range(horizon):
+		for j in range(i+1):
+			s_v[i * A.shape[0]:(i+1) * A.shape[0], j * A.shape[1]:(j+1) * A.shape[1]] = At_b_tmp[i-j-1]
+
+	return s_v
+
+def lifted_transfer_matrix(A=None, B=None, nb_dim=3, dt=0.01, horizon=50):
+	r"""
+	Given a linear system
+
+	.. math::
+		\xi_{t+1} = \mathbf{A} \xi_t + \mathbf{B} u_t
+
+	returns the lifted form for T timesteps
+
+	.. math::
+	    \mathbf{\xi} = \mathbf{S}_{\xi} \xi_0 + \mathbf{S}_u \mathbf{u}
+
+
+	"""
+
+	if A is None or B is None:
+		A, B = get_canonical(nb_dim, 2, dt)
+
+	s_xi = np.zeros((A.shape[0] * horizon, A.shape[1]))
+	A_p = np.eye(A.shape[0])
+	At_b_tmp = []
+	for i in range(horizon):
+		s_xi[i * A.shape[0]:(i+1) * A.shape[0]] = A_p
+		At_b_tmp += [np.copy(A_p.dot(B))]
+		A_p = A_p.dot(A)
+
+	s_u = np.zeros((B.shape[0] * horizon, B.shape[1] * horizon))
+
+	for i in range(horizon):
+		for j in range(i):
+			s_u[i * B.shape[0]:(i+1) * B.shape[0], j * B.shape[1]:(j+1) * B.shape[1]] = At_b_tmp[i-j-1]
+
+	return s_xi, s_u
 
 
 def gu_pinv(A, rcond=1e-15):

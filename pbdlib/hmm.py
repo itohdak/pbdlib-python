@@ -1,9 +1,9 @@
+from termcolor import colored
 import numpy as np
 
-from .functions import *
-from .model import *
-from .gmm import *
-from .gmr import *
+from pbdlib.functions import *
+from pbdlib.model import *
+from pbdlib.gmm import *
 
 import math
 from numpy.linalg import inv, pinv, norm, det
@@ -12,70 +12,41 @@ import sys
 
 class HMM(GMM):
 	def __init__(self, nb_states, nb_dim=2):
-		Model.__init__(self, nb_states, nb_dim)
+		GMM.__init__(self, nb_states, nb_dim)
 
-	def init_hmm_kbins(self, demos, dep=None, reg=1e-8):
-		"""
-		Init HMM by splitting each demos in K bins along time. Each K states of the HMM will
-		be initialized with one of the bin. It corresponds to a left-to-right HMM.
+		self._trans = None
+		self._init_priors = None
 
-		:param demos:	[list of np.array([nb_timestep, nb_dim])]
-		:param dep:
-		:param reg:		[float]
-		:return:
-		"""
+	@property
+	def init_priors(self):
+		if self._init_priors is None:
+			print colored("HMM init priors not defined, initializing to uniform", 'red', 'on_white')
+			self._init_priors = np.ones(self.nb_states) / self.nb_states
 
-		# delimit the cluster bins for first demonstration
-		self.nb_dim = demos[0].shape[1]
+		return self._init_priors
 
-		self.Priors = np.zeros(self.nb_states)
-		self.Mu = np.zeros((self.nb_dim, self.nb_states))
-		self.Sigma = np.zeros((self.nb_dim, self.nb_dim, self.nb_states))
-		t_sep = []
+	@init_priors.setter
+	def init_priors(self, value):
+		self._init_priors = value
 
-		for demo in demos:
-			t_sep += [map(int, np.round(np.linspace(0, demo.shape[0], self.nb_states + 1)))]
+	@property
+	def trans(self):
+		if self._trans is None:
+			print colored("HMM transition matrix not defined, initializing to uniform", 'red', 'on_white')
+			self._trans = np.ones((self.nb_states, self.nb_states)) / self.nb_states
+		return self._trans
 
-		# print t_sep
-		for i in range(self.nb_states):
-			data_tmp = np.empty((0, self.nb_dim))
-			inds = []
-			states_nb_data = 0   # number of datapoints assigned to state i
+	@trans.setter
+	def trans(self, value):
+		self._trans = value
 
-			# Get bins indices for each demonstration
-			for n, demo in enumerate(demos):
-				inds = range(t_sep[n][i], t_sep[n][i+1])
+	@property
+	def Trans(self):
+		return self.trans
 
-				data_tmp = np.concatenate([data_tmp, demo[inds]], axis=0)
-				states_nb_data += t_sep[n][i+1]-t_sep[n][i]
-
-			self.Priors[i] = states_nb_data
-			self.Mu[:, i] = np.mean(data_tmp, axis=0)
-
-			if dep is None:
-				self.Sigma[:, :, i] = np.cov(data_tmp.T) + np.eye(self.nb_dim) * reg
-			else:
-				for d in dep:
-					dGrid = np.ix_(d, d, [i])
-					self.Sigma[dGrid] = (np.cov(data_tmp[:, d].T) + np.eye(
-						len(d)) * reg)[:, :, np.newaxis]
-				# print self.Sigma[:,:,i]
-
-		# normalize priors
-		self.Priors = self.Priors / np.sum(self.Priors)
-
-		# Hmm specific init
-		self.Trans = np.ones((self.nb_states, self.nb_states)) * 0.01
-
-		nb_data = np.mean([d.shape[0] for d in demos])
-
-		for i in range(self.nb_states - 1):
-			self.Trans[i, i] = 1.0 - float(self.nb_states) / nb_data
-			self.Trans[i, i + 1] = float(self.nb_states) / nb_data
-
-		self.Trans[-1, -1] = 1.0
-		self.StatesPriors = np.ones(self.nb_states) * 1./self.nb_states
-
+	@Trans.setter
+	def Trans(self, value):
+		self.trans = value
 
 	def viterbi(self, demo):
 		"""
@@ -85,25 +56,22 @@ class HMM(GMM):
 		:return:
 		"""
 
-		nb_data, dim = demo.shape
+		nb_data, dim = demo.shape if isinstance(demo, np.ndarray) else demo['x'].shape
 
-		demo = demo.T
 		logB = np.zeros((self.nb_states, nb_data))
 		logDELTA = np.zeros((self.nb_states, nb_data))
 		PSI = np.zeros((self.nb_states, nb_data)).astype(int)
 
-		for i in range(self.nb_states):
-			logB[i, :] = multi_variate_normal(demo.T, self.Mu[:, i], self.Sigma[:, :, i], log=True)
+		_, logB = self.obs_likelihood(demo)
 
 		# forward pass
-		logDELTA[:, 0] = np.log(self.StatesPriors + realmin) + logB[:, 0]
+		logDELTA[:, 0] = np.log(self.init_priors + realmin) + logB[:, 0]
 
 		for t in range(1, nb_data):
 			for i in range(self.nb_states):
 				# get index of maximum value : most probables
 				PSI[i, t] = np.argmax(logDELTA[:, t - 1] + np.log(self.Trans[:, i] + realmin))
-				logDELTA[i, t] = np.max(logDELTA[:, t - 1] + np.log(self.Trans[:, i] + realmin)) + \
-								 logB[i, t]
+				logDELTA[i, t] = np.max(logDELTA[:, t - 1] + np.log(self.Trans[:, i] + realmin)) + logB[i, t]
 
 		# backtracking
 		q = [0 for i in range(nb_data)]
@@ -113,7 +81,32 @@ class HMM(GMM):
 
 		return q
 
-	def compute_messages(self, demo, dep=None, table=None, marginal=None):
+	def obs_likelihood(self, demo=None, dep=None, marginal=None, sample_size=200, demo_idx=None):
+		sample_size = demo.shape[0]
+		# emission probabilities
+		B = np.ones((self.nb_states, sample_size))
+
+		if marginal != []:
+			for i in range(self.nb_states):
+				mu, sigma = (self.mu, self.sigma)
+
+				if marginal is not None:
+					mu, sigma = self.get_marginal(marginal)
+
+				if dep is None :
+					B[i, :] = multi_variate_normal(demo,
+												   mu[i],
+												   sigma[i], log=True)
+				else:  # block diagonal computation
+					B[i, :] = 1.0
+					for d in dep:
+						dGrid = np.ix_([i], d, d)
+						B[[i], :] += multi_variate_normal(demo, mu[d, i],
+														  sigma[dGrid][0], log=True)
+
+		return np.exp(B), B
+
+	def compute_messages(self, demo=None, dep=None, table=None, marginal=None, sample_size=200, demo_idx=None):
 		"""
 
 		:param demo: 	[np.array([nb_timestep, nb_dim])]
@@ -124,47 +117,32 @@ class HMM(GMM):
 			covariance with dim [2]
 		:param table: 	np.array([nb_states, nb_demos]) - composed of 0 and 1
 			A mask that avoid some demos to be assigned to some states
-		:param marginal: [slice(dim_start, dim_end)]
+		:param marginal: [slice(dim_start, dim_end)] or []
 			If not None, compute messages with marginals probabilities
+			If [] compute messages without observations, use size
 			(can be used for time-series regression)
 		:return:
 		"""
-		sample_size = demo.shape[0]
+		if isinstance(demo, np.ndarray):
+			sample_size = demo.shape[0]
+		elif isinstance(demo, dict):
+			sample_size = demo['x'].shape[0]
 
-		# emission probabilities
-		B = np.zeros((self.nb_states, sample_size))
-
-		for i in range(self.nb_states):
-			Mu, Sigma = (self.Mu, self.Sigma)
-
-			if marginal is not None:
-				Mu, Sigma = self.get_marginal(marginal)
-
-			if dep is None :
-				B[i, :] = multi_variate_normal(demo,
-											   Mu[:, i],
-											   Sigma[:, :, i], log=False)
-			else:  # block diagonal computation
-				B[i, :] = 1.0
-				for d in dep:
-					dGrid = np.ix_(d, d, [i])
-					B[[i], :] *= multi_variate_normal(demo, Mu[d, i],
-													  Sigma[dGrid][:, :, 0], log=False)
-
-		if table is not None:
-			B *= table[:, [n]]
+		B, _ = self.obs_likelihood(demo, dep, marginal, sample_size)
+		# if table is not None:
+		# 	B *= table[:, [n]]
 
 		self._B = B
 
 		# forward variable alpha (rescaled)
 		alpha = np.zeros((self.nb_states, sample_size))
-		alpha[:, 0] = self.StatesPriors * B[:, 0]
+		alpha[:, 0] = self.init_priors * B[:, 0]
 		c = np.zeros(sample_size)
 		c[0] = 1.0 / np.sum(alpha[:, 0] + realmin)
 		alpha[:, 0] = alpha[:, 0] * c[0]
 
 		for t in range(1, sample_size):
-			alpha[:, t] = mul([alpha[:, t - 1], self.Trans]) * B[:, t]
+			alpha[:, t] = alpha[:, t - 1].dot(self.Trans) * B[:, t]
 			# Scaling to avoid underflow issues
 			c[t] = 1.0 / np.sum(alpha[:, t] + realmin)
 			alpha[:, t] = alpha[:, t] * c[t]
@@ -191,10 +169,19 @@ class HMM(GMM):
 
 		return alpha, beta, gamma, zeta, c
 
-	def em(self, demos, dep=None, reg=1e-8, table=None, end_cov=False, cov_type='full'):
+	def gmm_init(self, data, **kwargs):
+		if isinstance(data, list):
+			data = np.concatenate(data, axis=0)
+		GMM.em(self, data, **kwargs)
+
+		self.init_priors = np.ones(self.nb_states) / self.nb_states
+		self.Trans = np.ones((self.nb_states, self.nb_states))/self.nb_states
+
+	def em(self, demos, dep=None, reg=1e-8, table=None, end_cov=False, cov_type='full', dep_mask=None):
 		"""
 
 		:param demos:	[list of np.array([nb_timestep, nb_dim])]
+				or [lisf of dict({})]
 		:param dep:		[A x [B x [int]]] A list of list of dimensions
 			Each list of dimensions indicates a dependence of variables in the covariance matrix
 			E.g. [[0],[1],[2]] indicates a diagonal covariance matrix
@@ -221,16 +208,13 @@ class HMM(GMM):
 		# stored log-likelihood
 		LL = np.zeros(nb_max_steps)
 
+		self.reg = reg
 		# create regularization matrix
-		if isinstance(reg, float):
-			min_sigma = np.eye(self.nb_dim) * reg
-		else:
-			min_sigma = np.diag(reg)
 
 		for it in range(nb_max_steps):
 
 			for n, demo in enumerate(demos):
-				s[n]['alpha'], s[n]['beta'], s[n]['gamma'], s[n]['zeta'], s[n]['c'] = self.compute_messages(demo, dep, table)
+				s[n]['alpha'], s[n]['beta'], s[n]['gamma'], s[n]['zeta'], s[n]['c'] = HMM.compute_messages(self, demo, dep, table)
 
 			# concatenate intermediary vars
 			gamma = np.hstack([s[i]['gamma'] for i in range(nb_samples)])
@@ -238,38 +222,40 @@ class HMM(GMM):
 			gamma_init = np.hstack([s[i]['gamma'][:, 0:1] for i in range(nb_samples)])
 			gamma_trk = np.hstack([s[i]['gamma'][:, 0:-1] for i in range(nb_samples)])
 
-			gamma2 = gamma / np.tile(np.sum(gamma, axis=1).reshape(-1, 1) + realmin,
-									 (1, gamma.shape[1]))
+			gamma2 = gamma / (np.sum(gamma, axis=1, keepdims=True) + realmin)
 
 			# M-step
 			for i in range(self.nb_states):
 				# Update centers
-				self.Mu[:, i] = np.einsum('a,ia->i',gamma2[i], data)
+				self.mu[i] = np.einsum('a,ia->i',gamma2[i], data)
 
 				# Update covariances
-				Data_tmp = data - self.Mu[:, [i]]
-				self.Sigma[:, :, i] = np.einsum('ij,jk->ik',
+				Data_tmp = data - self.mu[i][:, None]
+				self.sigma[i] = np.einsum('ij,jk->ik',
 												np.einsum('ij,j->ij', Data_tmp,
 														  gamma2[i, :]), Data_tmp.T)
 				# Regularization
-				self.Sigma[:, :, i] = self.Sigma[:, :, i] + min_sigma
+				self.sigma[i] = self.sigma[i] + self.reg
 
 				if cov_type == 'diag':
-					self.Sigma[:, :, i] *= np.eye(self.Sigma.shape[0])
-				
+					self.sigma[i] *= np.eye(self.sigma.shape[1])
+
+			if dep_mask is not None:
+				self.sigma *= dep_mask
+
 			# Update initial state probablility vector
-			self.StatesPriors = np.mean(gamma_init, axis=1)
+			self.init_priors = np.mean(gamma_init, axis=1)
 
 			# Update transition probabilities
-			self.Trans = np.sum(zeta, axis=2) / np.tile(
-				np.sum(gamma_trk, axis=1).reshape(-1, 1) + realmin, (1, self.nb_states))
+			self.Trans = np.sum(zeta, axis=2) / (np.sum(gamma_trk, axis=1) + realmin)
 			# print self.Trans
-
 			# Compute avarage log-likelihood using alpha scaling factors
 			LL[it] = 0
 			for n in range(nb_samples):
 				LL[it] -= sum(np.log(s[n]['c']))
 			LL[it] = LL[it] / nb_samples
+
+			self._gammas = [s_['gamma'] for s_ in s]
 
 			# Check for convergence
 			if it > nb_min_steps:
@@ -282,14 +268,17 @@ class HMM(GMM):
 												np.einsum('ij,j->ij', Data_tmp,
 														  gamma2[i, :]), Data_tmp.T)
 
-					self.update_precision_matrix()
+						if cov_type == 'diag':
+							self.sigma[i] *= np.eye(self.sigma.shape[1])
+
 					# print "EM converged after " + str(it) + " iterations"
 					# print LL[it]
-					return LL[it]
+					return gamma
+
 
 		print "EM did not converge"
 		print LL
-		return LL
+		return gamma
 
 	def score(self, demos):
 		"""
@@ -311,3 +300,14 @@ class HMM(GMM):
 			a, _, _, _, _ = self.compute_messages(data_in, marginal=dim_in)
 
 			return super(HMM, self).condition(data_in, dim_in, dim_out, h=a)
+
+	"""
+	To ensure compatibility
+	"""
+	@property
+	def Trans(self):
+		return self.trans
+
+	@Trans.setter
+	def Trans(self, value):
+		self.trans = value
