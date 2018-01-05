@@ -176,7 +176,6 @@ class PoGLQR(object):
 
 		return self._s_xi
 
-	@property
 	def reset_params(self):
 		# reset everything
 		self._s_xi, self._s_u = None, None

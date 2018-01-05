@@ -81,6 +81,24 @@ class HMM(GMM):
 
 		return q
 
+	def split_kbins(self, demos):
+		t_sep = []
+		t_resp = []
+
+		for demo in demos:
+			t_sep += [map(int, np.round(
+				np.linspace(0, demo.shape[0], self.nb_states + 1)))]
+
+			resp = np.zeros((demo.shape[0], self.nb_states))
+
+			# print t_sep
+			for i in range(self.nb_states):
+				resp[t_sep[-1][i]:t_sep[-1][i+1], i] = 1.0
+			# print resp
+			t_resp += [resp]
+
+		return np.concatenate(t_resp)
+
 	def obs_likelihood(self, demo=None, dep=None, marginal=None, sample_size=200, demo_idx=None):
 		sample_size = demo.shape[0]
 		# emission probabilities
