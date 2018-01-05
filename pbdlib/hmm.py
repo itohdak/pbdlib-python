@@ -288,7 +288,7 @@ class HMM(GMM):
 		"""
 		ll = []
 		for n, demo in enumerate(demos):
-			_, _, _, _, c = self.compute_messages(demo)
+			_, _, _, _, c = HMM.compute_messages(self, demo)
 			ll += [np.sum(np.log(c))]
 
 		return ll

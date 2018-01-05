@@ -26,6 +26,24 @@ class PoGLQR(object):
 		self._seq_xi, self._seq_u = None, None
 
 	@property
+	def A(self):
+		return self._A
+
+	@A.setter
+	def A(self, value):
+		self.reset_params() # reset params
+		self._A = value
+
+	@property
+	def B(self):
+		return self._B
+
+	@B.setter
+	def B(self, value):
+		self.reset_params() # reset params
+		self._B = value
+
+	@property
 	def u_dim(self):
 		"""
 		Number of dimension of input sequence lifted form
@@ -159,16 +177,21 @@ class PoGLQR(object):
 		return self._s_xi
 
 	@property
-	def horizon(self):
-		return self._horizon
-
-	@horizon.setter
-	def horizon(self, value):
+	def reset_params(self):
 		# reset everything
 		self._s_xi, self._s_u = None, None
 		self._x0 = None
 		self._mvn_xi, self._mvn_u = None, None
 		self._mvn_sol_xi, self._mvn_sol_u = None, None
 		self._seq_xi, self._seq_u = None, None
+
+	@property
+	def horizon(self):
+		return self._horizon
+
+	@horizon.setter
+	def horizon(self, value):
+		self.reset_params()
+
 
 		self._horizon = value
