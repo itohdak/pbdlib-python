@@ -206,15 +206,16 @@ def plot_coordinate_system(A, b, scale=1., equal=True, ax=None, **kwargs):
 	p.plot(a1[:, 0], a1[:, 1], 'b', **kwargs)
 
 def plot_linear_system(K, b=None, name=None, nb_sub=10, ax0=None, xlim=[-1, 1], ylim=[-1, 1],
-					   equal=True, scale=0.01, scale_K=100, plot_gains=True, field=None, **kwargs):
+					   equal=True, scale=0.01, scale_K=100, plot_gains=True, field=None, multi_center=False, **kwargs):
 	a = -2
 
 
-	Y, X = np.mgrid[ylim[0]:ylim[1]:30j, xlim[0]:xlim[1]:30j]
+	Y, X = np.mgrid[ylim[0]:ylim[1]:complex(nb_sub), xlim[0]:xlim[1]:complex(nb_sub)]
 	mesh_data = np.vstack([X.ravel(), Y.ravel()])
 
+	plot_center = True
 	if b is None:
-		b = np.zeros(2)
+		b = np.zeros(2); plot_center = False
 
 	field = np.einsum('ij,ja->ia', K, mesh_data-b[:,None]) if field is None else field
 
@@ -231,7 +232,7 @@ def plot_linear_system(K, b=None, name=None, nb_sub=10, ax0=None, xlim=[-1, 1], 
 	V = field[1]
 	U = U.reshape(nb_sub, nb_sub)
 	V = V.reshape(nb_sub, nb_sub)
-
+	# import pdb; pdb.set_trace()
 	speed = np.sqrt(U * U + V * V)
 
 
@@ -243,6 +244,10 @@ def plot_linear_system(K, b=None, name=None, nb_sub=10, ax0=None, xlim=[-1, 1], 
 		ax0.set_xlim(xlim)
 		ax0.set_ylim(ylim)
 
+		if plot_center:
+			if multi_center: ctr = ax0.plot(b[:, 0], b[:, 1], 'kx', ms=8, mew=2)[0]
+			else: ctr = ax0.plot(b[0], b[1], 'kx', ms=8, mew=2)[0]
+
 		if equal:
 			ax0.set_aspect('equal')
 
@@ -250,11 +255,23 @@ def plot_linear_system(K, b=None, name=None, nb_sub=10, ax0=None, xlim=[-1, 1], 
 		strm = plt.streamplot(X, Y, U, V, linewidth=scale* speed, **kwargs)
 		plt.xlim(xlim)
 		plt.ylim(ylim)
+
+		if plot_center:
+			if multi_center: ctr = plt.plot(b[:, 0], b[:, 1], 'kx', ms=8, mew=2)[0]
+			else: ctr = plt.plot(b[0], b[1], 'kx', ms=8, mew=2)[0]
+
 		if equal:
 			plt.axes().set_aspect('equal')
 
+	if plot_center:
+		return [strm, ctr]
+	else:
+		return [strm]
 
-def plot_mixture_linear_system(model, mode='glob', nb_sub=30, gmm=True, min_alpha=0., cmap=plt.cm.jet, **kwargs):
+
+def plot_mixture_linear_system(model, mode='glob', nb_sub=20, gmm=True, min_alpha=0.,
+							   cmap=plt.cm.jet, A=None,b=None, gmr=False, return_strm=False,
+							   **kwargs):
 	"""
 
 	:param model:
@@ -270,22 +287,24 @@ def plot_mixture_linear_system(model, mode='glob', nb_sub=30, gmm=True, min_alph
 	xlim, ylim = [kwargs.get(s, [0, 1]) for s in ['xlim', 'ylim']]
 
 
-	Y, X = np.mgrid[ylim[0]:ylim[1]:30j, xlim[0]:xlim[1]:30j]
+	Y, X = np.mgrid[ylim[0]:ylim[1]:complex(nb_sub), xlim[0]:xlim[1]:complex(nb_sub)]
 	mesh_data = np.vstack([X.ravel(), Y.ravel()])
 	statecmap = cmap(range(256))[np.rint(np.linspace(0, 255, model.nb_states)).astype(int),:-1]
 
 	if mode == 'glob':
-		field = model.condition(mesh_data.T)
-		plot_linear_system(None, model.center, field=field.T, nb_sub=nb_sub,
+		if gmr:
+			field = model.condition(mesh_data.T, dim_in=slice(0, 2), dim_out=slice(2, 4))[0]
+			model.center = None
+		else:
+			field = model.condition(mesh_data.T) if A is None else model.condition(mesh_data.T, A, b)
+		strm = plot_linear_system(None, model.center, field=field.T, nb_sub=nb_sub, multi_center=hasattr(model, 'unconstrained_center'),
 						   **kwargs)
-
-
 
 	else:
 		# compute responsabilities
 		l = np.zeros((mesh_data.shape[1], model.nb_states))
 		for i in range(model.nb_states):
-			l[:, i] = multi_variate_normal(mesh_data.T, model.mus_in[i], model.sigmas_in[i])
+			l[:, i] = pbd.multi_variate_normal(mesh_data.T, model.mus_in[i], model.sigmas_in[i])
 
 		l += np.log(model.priors)[None]
 
@@ -315,7 +334,21 @@ def plot_mixture_linear_system(model, mode='glob', nb_sub=30, gmm=True, min_alph
 								   nb_sub=nb_sub, **kwargs)
 
 	if gmm:
-		pbd.plot_gmm(model.mus_in, model.sigmas_in, swap=True, color=statecmap)
+		if gmr:
+			mu, sigma = model.mu[:, :2], model.sigma[:, :2, :2]
+		else:
+			if A is None:
+				mu, sigma = (model.mus_in, model.sigmas_in)#
+			else:
+				mu, sigma = (model.mus_in_p[:, 0], model.sigmas_in_p[:, 0])
+
+		pbd.plot_gmm(mu, sigma, swap=True, color=statecmap, ax=kwargs.pop('ax0', None), zorder=0)
+
+	if return_strm:
+		return statecmap, strm
+	else:
+		return statecmap
+
 
 def plot_gmm(Mu, Sigma, dim=None, color=[1, 0, 0], alpha=0.5, linewidth=1, markersize=6,
 			 ax=None, empty=False, edgecolor=None, edgealpha=None,

@@ -133,6 +133,14 @@ class Model(object):
 		self._sigma_chol = None
 		self._lmbda = value
 
+	def get_dep_mask(self, deps):
+		mask = np.zeros((self.nb_dim, self.nb_dim))
+
+		for dep in deps:
+			mask[dep, dep] = 1.
+
+		return mask
+
 	def dep_mask(self, deps):
 		"""
 		Remove covariances between elements in the covariance matrix.
@@ -141,12 +149,10 @@ class Model(object):
 		List of slices of block-diagonal parts to keep. i.e. [slice(0,2), slice(2,4)]
 		:return:
 		"""
-		mask = np.zeros(self.sigma.shape[1:])
 
-		for dep in deps:
-			mask[dep, dep] = 1.
+		mask = self.get_dep_mask(deps)
 
-		self.sigma *= mask[None]
+		self.sigma *= mask
 
 		# reset parameters
 		self._lmbda = None
