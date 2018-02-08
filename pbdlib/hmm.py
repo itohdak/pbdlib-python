@@ -73,6 +73,8 @@ class HMM(GMM):
 				PSI[i, t] = np.argmax(logDELTA[:, t - 1] + np.log(self.Trans[:, i] + realmin))
 				logDELTA[i, t] = np.max(logDELTA[:, t - 1] + np.log(self.Trans[:, i] + realmin)) + logB[i, t]
 
+ 		assert not np.any(np.isnan(logDELTA)), "Nan values"
+
 		# backtracking
 		q = [0 for i in range(nb_data)]
 		q[-1] = np.argmax(logDELTA[:, -1])
@@ -155,6 +157,7 @@ class HMM(GMM):
 		# forward variable alpha (rescaled)
 		alpha = np.zeros((self.nb_states, sample_size))
 		alpha[:, 0] = self.init_priors * B[:, 0]
+
 		c = np.zeros(sample_size)
 		c[0] = 1.0 / np.sum(alpha[:, 0] + realmin)
 		alpha[:, 0] = alpha[:, 0] * c[0]
@@ -195,7 +198,8 @@ class HMM(GMM):
 		self.init_priors = np.ones(self.nb_states) / self.nb_states
 		self.Trans = np.ones((self.nb_states, self.nb_states))/self.nb_states
 
-	def em(self, demos, dep=None, reg=1e-8, table=None, end_cov=False, cov_type='full', dep_mask=None):
+	def em(self, demos, dep=None, reg=1e-8, table=None, end_cov=False, cov_type='full', dep_mask=None,
+		   reg_finish=None):
 		"""
 
 		:param demos:	[list of np.array([nb_timestep, nb_dim])]
@@ -214,6 +218,9 @@ class HMM(GMM):
 		:param cov_type: 	[string] in ['full', 'diag', 'spherical']
 		:return:
 		"""
+
+		if reg_finish is not None: end_cov = True
+
 		nb_min_steps = 5  # min num iterations
 		nb_max_steps = 50  # max iterations
 		max_diff_ll = 1e-4  # max log-likelihood increase
@@ -276,22 +283,27 @@ class HMM(GMM):
 			self._gammas = [s_['gamma'] for s_ in s]
 
 			# Check for convergence
-			if it > nb_min_steps:
-				if LL[it] - LL[it - 1] < max_diff_ll:
-					if end_cov:
-						for i in range(self.nb_states):
-							# recompute covariances without regularization
-							Data_tmp = data - self.Mu[:, [i]]
-							self.Sigma[:, :, i] = np.einsum('ij,jk->ik',
+			if it > nb_min_steps and LL[it] - LL[it - 1] < max_diff_ll:
+				print "EM converges"
+				print end_cov
+				if end_cov:
+					for i in range(self.nb_states):
+						# recompute covariances without regularization
+						Data_tmp = data - self.mu[i][:, None]
+						self.sigma[i] = np.einsum('ij,jk->ik',
 												np.einsum('ij,j->ij', Data_tmp,
 														  gamma2[i, :]), Data_tmp.T)
+						if reg_finish is not None:
+							self.reg = reg_finish
+							self.sigma += self.reg[None]
 
-						if cov_type == 'diag':
-							self.sigma[i] *= np.eye(self.sigma.shape[1])
 
-					# print "EM converged after " + str(it) + " iterations"
-					# print LL[it]
-					return gamma
+					if cov_type == 'diag':
+						self.sigma[i] *= np.eye(self.sigma.shape[1])
+
+				# print "EM converged after " + str(it) + " iterations"
+				# print LL[it]
+				return gamma
 
 
 		print "EM did not converge"
@@ -311,9 +323,9 @@ class HMM(GMM):
 
 		return ll
 
-	def condition(self, data_in, dim_in, dim_out, h=None, gmm=False):
+	def condition(self, data_in, dim_in, dim_out, h=None, gmm=False, return_gmm=False):
 		if gmm:
-			return super(HMM, self).condition(data_in, dim_in, dim_out)
+			return super(HMM, self).condition(data_in, dim_in, dim_out, return_gmm=return_gmm)
 		else:
 			a, _, _, _, _ = self.compute_messages(data_in, marginal=dim_in)
 

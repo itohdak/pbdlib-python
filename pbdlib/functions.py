@@ -4,8 +4,8 @@ from scipy.interpolate import interp1d
 colvec = lambda x: np.array(x).reshape(-1, 1)
 rowvec = lambda x: np.array(x).reshape(1, -1)
 
-realmin = np.finfo(np.double).tiny
-realmax = np.finfo(np.double).max
+realmin = np.finfo(np.float32).tiny
+realmax = np.finfo(np.float32).max
 
 def limit_gains(gains, gain_limit):
 	"""
