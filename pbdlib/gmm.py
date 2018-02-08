@@ -326,6 +326,20 @@ class GMM(Model):
 		self.Trans[-1, -1] = 1.0
 		self.init_priors = np.ones(self.nb_states) * 1. / self.nb_states
 
+	def add_trash_component(self, data, scale=2.):
+		if isinstance(data, list):
+			data = np.concatenate(data, axis=0)
+
+		mu_new = np.mean(data, axis=0)
+		sigma_new = scale ** 2 * np.cov(data.T)
+
+		self.priors = np.concatenate([self.priors, 0.01 * np.ones(1)])
+		self.priors /= np.sum(self.priors)
+		self.mu = np.concatenate([self.mu, mu_new[None]], axis=0)
+		self.sigma = np.concatenate([self.sigma, sigma_new[None]], axis=0)
+
+
+
 	def mvn_pdf(self, x, reg=None):
 		"""
 

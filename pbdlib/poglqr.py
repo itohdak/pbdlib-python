@@ -174,6 +174,11 @@ class PoGLQR(object):
 				horizon=self.horizon, dt=self.dt, nb_dim=self.nb_dim)
 		return self._s_u
 
+
+	@property
+	def k(self):
+		return self.mvn_sol_u.sigma.dot(self.s_u.T.dot(self.mvn_xi.lmbda)).dot(self.s_xi)
+
 	@property
 	def s_xi(self):
 		if self._s_xi is None:
