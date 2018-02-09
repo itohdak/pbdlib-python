@@ -177,7 +177,9 @@ class PoGLQR(object):
 
 	@property
 	def k(self):
-		return self.mvn_sol_u.sigma.dot(self.s_u.T.dot(self.mvn_xi.lmbda)).dot(self.s_xi)
+		# return self.mvn_sol_u.sigma.dot(self.s_u.T.dot(self.mvn_xi.lmbda)).dot(self.s_xi).reshape(
+		return self.mvn_sol_u.sigma.dot(self.s_u.T.dot(self.mvn_xi.lmbda)).dot(self.s_xi).reshape(
+			(self.horizon, self.u_dim/self.horizon, self.xi_dim/self.horizon))
 
 	@property
 	def s_xi(self):
