@@ -49,7 +49,10 @@ class PoGLQR(object):
 		Number of dimension of input sequence lifted form
 		:return:
 		"""
-		return self.nb_dim * self.horizon
+		if self.B is not None:
+			return self.B.shape[1] * self.horizon
+		else:
+			return self.nb_dim * self.horizon
 
 	@property
 	def xi_dim(self):
@@ -58,7 +61,10 @@ class PoGLQR(object):
 		Number of dimension of state sequence lifted form
 		:return:
 		"""
-		return self.nb_dim * self.horizon * 2
+		if self.A is not None:
+			return self.A.shape[0] * self.horizon
+		else:
+			return self.nb_dim * self.horizon * 2
 
 	@property
 	def mvn_sol_u(self):
@@ -171,7 +177,9 @@ class PoGLQR(object):
 
 	@property
 	def k(self):
-		return self.mvn_sol_u.sigma.dot(self.s_u.T.dot(self.mvn_xi.lmbda)).dot(self.s_xi)
+		# return self.mvn_sol_u.sigma.dot(self.s_u.T.dot(self.mvn_xi.lmbda)).dot(self.s_xi).reshape(
+		return self.mvn_sol_u.sigma.dot(self.s_u.T.dot(self.mvn_xi.lmbda)).dot(self.s_xi).reshape(
+			(self.horizon, self.u_dim/self.horizon, self.xi_dim/self.horizon))
 
 	@property
 	def s_xi(self):
