@@ -193,7 +193,7 @@ class PoGLQR(object):
 		# reset everything
 		self._s_xi, self._s_u = None, None
 		self._x0 = None
-		self._mvn_xi, self._mvn_u = None, None
+		# self._mvn_xi, self._mvn_u = None, None
 		self._mvn_sol_xi, self._mvn_sol_u = None, None
 		self._seq_xi, self._seq_u = None, None
 
