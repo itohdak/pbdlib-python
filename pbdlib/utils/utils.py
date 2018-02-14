@@ -9,8 +9,8 @@ from scipy.special import factorial
 
 plt.style.use('ggplot')
 
-def get_canonical(nb_dim, nb_deriv=2, dt=0.01):
 
+def get_canonical(nb_dim, nb_deriv=2, dt=0.01):
 	A1d = np.zeros((nb_deriv, nb_deriv))
 
 	for i in range(nb_deriv):
@@ -21,6 +21,7 @@ def get_canonical(nb_dim, nb_deriv=2, dt=0.01):
 		B1d[nb_deriv - i] = np.power(dt, i) / factorial(i)
 
 	return np.kron(A1d, np.eye(nb_dim)), np.kron(B1d, np.eye(nb_dim))
+
 
 def lifted_noise_matrix(A=None, B=None, nb_dim=3, dt=0.01, horizon=50):
 	r"""
@@ -50,10 +51,12 @@ def lifted_noise_matrix(A=None, B=None, nb_dim=3, dt=0.01, horizon=50):
 		A_p = A_p.dot(A)
 
 	for i in range(horizon):
-		for j in range(i+1):
-			s_v[i * A.shape[0]:(i+1) * A.shape[0], j * A.shape[1]:(j+1) * A.shape[1]] = At_b_tmp[i-j-1]
+		for j in range(i + 1):
+			s_v[i * A.shape[0]:(i + 1) * A.shape[0], j * A.shape[1]:(j + 1) * A.shape[1]] = \
+			At_b_tmp[i - j - 1]
 
 	return s_v
+
 
 def lifted_transfer_matrix(A=None, B=None, nb_dim=3, dt=0.01, horizon=50):
 	r"""
@@ -77,7 +80,7 @@ def lifted_transfer_matrix(A=None, B=None, nb_dim=3, dt=0.01, horizon=50):
 	A_p = np.eye(A.shape[0])
 	At_b_tmp = []
 	for i in range(horizon):
-		s_xi[i * A.shape[0]:(i+1) * A.shape[0]] = A_p
+		s_xi[i * A.shape[0]:(i + 1) * A.shape[0]] = A_p
 		At_b_tmp += [np.copy(A_p.dot(B))]
 		A_p = A_p.dot(A)
 
@@ -85,43 +88,104 @@ def lifted_transfer_matrix(A=None, B=None, nb_dim=3, dt=0.01, horizon=50):
 
 	for i in range(horizon):
 		for j in range(i):
-			s_u[i * B.shape[0]:(i+1) * B.shape[0], j * B.shape[1]:(j+1) * B.shape[1]] = At_b_tmp[i-j-1]
+			s_u[i * B.shape[0]:(i + 1) * B.shape[0], j * B.shape[1]:(j + 1) * B.shape[1]] = \
+			At_b_tmp[i - j - 1]
 
 	return s_xi, s_u
 
 
 def gu_pinv(A, rcond=1e-15):
-    I = A.shape[0]
-    J = A.shape[1]
-    return np.array([[np.linalg.pinv(A[i, j]) for j in range(J)] for i in range(I)])
+	I = A.shape[0]
+	J = A.shape[1]
+	return np.array([[np.linalg.pinv(A[i, j]) for j in range(J)] for i in range(I)])
 
-def align_trajectories(data):
+
+def _create_relative_time(q, start=-1.):
+	"""
+	:param 	q:		[list of int]
+		List of state indicator.
+		ex: [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 0, 0, 0, 1, 1, ...]
+	:return time:	[np.array(nb_timestep,)]
+		Phase for each of the timestep
+	"""
+	# find the index of states changes
+	state_idx = np.array([-1] + np.nonzero(np.diff(q))[0].tolist() + [len(q) - 1])
+
+	time = np.zeros(len(q))
+
+	for i, t in enumerate(state_idx[:-1]):
+		start_phase = start if i == 0 else -1.
+		l = state_idx[i + 1] - state_idx[i]
+		time[state_idx[i] + 1:state_idx[i + 1] + 1] = np.linspace(start_phase, 1, l)
+
+	return time, state_idx
+
+
+def align_trajectories_hsmm(data, nb_states=5):
+	from ..hsmm import HSMM
+
+	if data[0].ndim > 2:  # if more than rank 2, flatten last dims
+		data_vectorized = [np.reshape(d, (d.shape[0], -1)) for d in data]
+	else:
+		data_vectorized = data
+
+	model = HSMM(nb_dim=data[0].shape[1], nb_states=nb_states)
+	model.init_hmm_kbins(data_vectorized)
+
+
+	qs = [model.viterbi(d) for d in data_vectorized]
+
+	time, sqs = zip(*[_create_relative_time(q) for q in qs])
+
+	start_idx = [np.array((np.nonzero(np.diff(q))[0] + 1).tolist()) for q in qs]
+
+	for s_idxs, t in zip(start_idx, time):
+		for s_idx in s_idxs:
+			t[s_idx:] += 2. + (t[s_idx + 1] - t[s_idx])
+
+	return time
+
+
+def align_trajectories(data, additional_data=[], hsmm=True, nb_states=5):
 	"""
 
 	:param data: 		[list of np.array([nb_timestep, M, N, ...])]
 	:return:
 	"""
 	from dtw import dtw
+	if hsmm:
+		time = align_trajectories_hsmm(data, nb_states)
 
 	ls = np.argmax([d.shape[0] for d in data])  # select longest as basis
 
 	data_warp = []
+	additional_data_warp = [[] for d in additional_data]
 
-	for d in data:
-		dist, cost, acc, path = dtw(data[ls], d,
-									dist=lambda x, y: np.linalg.norm(x - y, ord=1))
+	for j, d in enumerate(data):
+		if hsmm:
+			dist, cost, acc, path = dtw(time[ls], time[j],
+										dist=lambda x, y: np.linalg.norm(x - y))
+		else:
+			dist, cost, acc, path = dtw(data[ls], d,
+										dist=lambda x, y: np.linalg.norm(x - y, ord=1))
 
 		data_warp += [d[path[1]][:data[ls].shape[0]]]
 
-	return data_warp
+		for i, ad in enumerate(additional_data):
+			additional_data_warp[i] += [ad[j][path[1]][:data[ls].shape[0]]]
 
+	if len(additional_data):
+		return [data_warp] + additional_data_warp
+	else:
+		return data_warp
 
 
 def angle_to_rotation(theta):
-	return np.array([[np.cos(theta), -np.sin(theta)],[np.sin(theta), np.cos(theta)]])
+	return np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
+
 
 def feature_to_slice(nb_dim=2, nb_frames=None, nb_attractor=2,
-		features=None):
+					 features=None):
 	# type: (int, list of int, int, list of list of string) -> object
 	index = []
 	l = 0
@@ -140,11 +204,10 @@ def dtype_to_index(dtype):
 	last_idx = 0
 	idx = {}
 	for name in dtype.names:
-		idx[name] = range(last_idx,last_idx+dtype[name].shape[0])
+		idx[name] = range(last_idx, last_idx + dtype[name].shape[0])
 		last_idx += dtype[name].shape[0]
 
 	return idx
-
 
 
 def gu_pinv(A, rcond=1e-15):
@@ -168,8 +231,7 @@ def gu_pinv(A, rcond=1e-15):
 #                      np.transpose(v, swap) * s[..., None, :],
 #                      np.transpose(u, swap))
 
-def plot_model_time(model, demos,figsize=(10, 2), dim_idx=[1], demo_idx=0):
-
+def plot_model_time(model, demos, figsize=(10, 2), dim_idx=[1], demo_idx=0):
 	nb_dim = len(dim_idx)
 	nb_samples = len(demos)
 
@@ -199,21 +261,23 @@ def plot_model_time(model, demos,figsize=(10, 2), dim_idx=[1], demo_idx=0):
 	s = state_sequ[demo_idx]
 
 	for dim, a in zip(dim_idx, ax):
-		a.plot(d['Data'][dim,:])
+		a.plot(d['Data'][dim, :])
 
 		for x_s, x_e, state in zip([0] + np.where(np.diff(s))[0].tolist(),  # start step
-						np.where(np.diff(s))[0].tolist() + [len(s)],   # end step
-						np.array(s)[[0] + (np.where(np.diff(s))[0] + 1).tolist()]):   # state idx
+								   np.where(np.diff(s))[0].tolist() + [len(s)],  # end step
+								   np.array(s)[[0] + (
+									   np.where(np.diff(s))[0] + 1).tolist()]):  # state idx
 			a.axvline(x=x_e, ymin=0, ymax=1, c='k', lw=2, ls='--')
 
 			mean = model.Mu[dim, state]
-			var = np.sqrt(model.Sigma	[dim, dim, state])
+			var = np.sqrt(model.Sigma[dim, dim, state])
 			a.plot([x_s, x_e], [mean, mean], c='k', lw=2)
 
-			a.fill_between([x_s, x_e], [mean+var, mean+var], [mean-var, mean-var],
-							 alpha=0.5, color=color[state])
+			a.fill_between([x_s, x_e], [mean + var, mean + var], [mean - var, mean - var],
+						   alpha=0.5, color=color[state])
 
 	plt.show()
+
 
 def plot_demos_3d(demos, figsize=(15, 5), angle=[60, 45]):
 	nb_samples = len(demos)
@@ -351,7 +415,6 @@ def plot_model(model, demos, figsize=(8, 3.5), skill_name='temp', save=False):
 
 	gs = gridspec.GridSpec(1, 3, width_ratios=[1, 1, 0.8])
 
-
 	for j in range(nb_plt):
 		ax.append(fig.add_subplot(gs[j]))
 		ax[j].set_axis_bgcolor('white')
@@ -410,7 +473,8 @@ def plot_model(model, demos, figsize=(8, 3.5), skill_name='temp', save=False):
 		plt.savefig('/home/idiap/epignat/thesis/paper/images/' + skill_name + '_model.pdf',
 					bbox_extra_artists=(lgd,), bbox_inches='tight')
 
-def plot_demos(demos, data_dim, figsize=(8,5)):
+
+def plot_demos(demos, data_dim, figsize=(8, 5)):
 	nb_samples = len(demos)
 	fig = plt.figure(2, figsize=figsize)
 	# fig.suptitle("Model", fontsize=14, fontweight='bold')
@@ -429,7 +493,8 @@ def plot_demos(demos, data_dim, figsize=(8,5)):
 
 	for j, dim in enumerate(data_dim):
 		for i in range(nb_samples):
-			ax[j].plot(demos[i]['Data'][dim,:].T)
+			ax[j].plot(demos[i]['Data'][dim, :].T)
+
 
 def train_test(demos, demo_idx=0, nb_states=5, test=True, sensory=True, kbins=True,
 			   hmmr=True,
@@ -490,10 +555,9 @@ def train_test(demos, demo_idx=0, nb_states=5, test=True, sensory=True, kbins=Tr
 	return model, hmmr
 
 
-def repro_demo(model, hmmr,demos,demo_idx=0,start_point=None,plot_on=False):
+def repro_demo(model, hmmr, demos, demo_idx=0, start_point=None, plot_on=False):
 	nb_states = model.nb_states
 	nb_samples = len(demos)
-
 
 	t = 50  # timestep for reproduction
 	# regress in first configuration
@@ -558,16 +622,14 @@ def repro_demo(model, hmmr,demos,demo_idx=0,start_point=None,plot_on=False):
 		### plot state sequence ###
 		nb += 1
 
-
-
 		for i in range(nb_states):
 			ax[nb].plot(h_1[i, :], color=color[i])
 
 		ax[nb].set_ylim([-0.1, 1.1])
 
-		pblt.plot_gmm(prod_ph_1.Mu, prod_ph_1.Sigma, dim=[0, 1], color=color_gmr, ax=ax[nb - 1],
+		pblt.plot_gmm(prod_ph_1.Mu, prod_ph_1.Sigma, dim=[0, 1], color=color_gmr,
+					  ax=ax[nb - 1],
 					  nb=1)
-
 
 		ax[0].plot(plan[0, :], plan[1, :], 'w', lw=2, zorder=50)
 		ax[0].plot(demos[demo_idx]['Glb'][0, :], demos[demo_idx]['Glb'][1, :], 'k--', lw=3,
