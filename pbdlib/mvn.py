@@ -34,7 +34,14 @@ class MVN(object):
 		self._lmbdaT = None
 		self._muT = None
 
-		self.nb_dim = self._mu.shape[0] if self._mu is not None else nb_dim
+		if mu is not None:
+			self.nb_dim = mu.shape[0]
+		elif sigma is not None:
+			self.nb_dim = sigma.shape[0]
+		elif lmbda is not None:
+			self.nb_dim = lmbda.shape[0]
+		else:
+			self.nb_dim = nb_dim
 
 	@property
 	def eta(self):
@@ -50,6 +57,8 @@ class MVN(object):
 
 	@property
 	def mu(self):
+		if self._mu is None:
+			self._mu = np.zeros(self.nb_dim)
 		return self._mu
 
 	@mu.setter

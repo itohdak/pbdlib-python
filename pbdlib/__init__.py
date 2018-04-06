@@ -9,6 +9,7 @@ from .mvn import *
 from .plot import *
 from .pylqr import *
 from .poglqr import PoGLQR
+from .mtmm import MTMM
 
 import utils
 import plot

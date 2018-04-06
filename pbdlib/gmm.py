@@ -16,6 +16,24 @@ class GMM(Model):
 		if init_zeros:
 			self.init_zeros()
 
+	def get_matching_mvn(self, max=False, mass=None):
+		if max:
+			priors = (self.priors == np.max(self.priors)).astype(np.float32)
+			priors /= np.sum(priors)
+		elif mass is not None:
+			prior_lim = np.sort(self.priors)[::-1][np.max(
+				[0, np.argmin(np.cumsum(np.sort(self.priors)[::-1]) < mass)])]
+
+			priors = (self.priors >= prior_lim) * self.priors
+			priors /= np.sum(priors)
+		else:
+			priors = self.priors
+		# print priors, self.priors
+
+		mus, sigmas = self.moment_matching(priors)
+		mvn = MVN(nb_dim=self.nb_dim, mu=mus[0], sigma=sigmas[0])
+
+		return mvn
 
 	def moment_matching(self, h):
 		"""
@@ -34,6 +52,18 @@ class GMM(Model):
 
 		return mus, sigmas
 
+	def __add__(self, other):
+		if isinstance(other, MVN):
+			gmm = GMM(nb_dim=self.nb_dim, nb_states=self.nb_states)
+
+			gmm.priors = self.priors
+			gmm.mu = self.mu + other.mu[None]
+			gmm.sigma = self.sigma + other.sigma[None]
+
+			return gmm
+
+		else:
+			raise NotImplementedError
 
 	def __mul__(self, other):
 		"""
@@ -42,14 +72,36 @@ class GMM(Model):
 		:param other:
 		:return:
 		"""
-		gmm = GMM(nb_dim=self.nb_dim, nb_states=self.nb_states)
-		gmm.priors = self.priors
-		gmm.mu = np.einsum('aij,aj->ai', self.lmbda, self.mu) + \
-				 np.einsum('aij,aj->ai', other.lmbda, other.mu)
+		if isinstance(other, MVN):
+			gmm = GMM(nb_dim=self.nb_dim, nb_states=self.nb_states)
+			gmm.mu = np.einsum('aij,aj->ai', self.lmbda, self.mu) + \
+					 np.einsum('ij,j->i', other.lmbda, other.mu)[None]
 
-		gmm.lmbda = self.lmbda + other.lmbda
+			gmm.lmbda = self.lmbda + other.lmbda[None]
+			gmm.mu = np.einsum('aij,aj->ai', gmm.sigma, gmm.mu)
 
-		gmm.mu = np.einsum('aij,aj->ai', gmm.sigma, gmm.mu)
+			Z = np.linalg.slogdet(self.lmbda)[1]\
+				+ np.linalg.slogdet(other.lmbda)[1] \
+				- 0.5 * np.linalg.slogdet(gmm.lmbda)[1] \
+				- self.nb_dim / 2. * np.log(2 * np.pi) \
+				+ 0.5 * (np.einsum('ai,aj->a',
+								   np.einsum('ai,aij->aj', gmm.mu, gmm.lmbda), gmm.mu)
+						-np.einsum('ai,aj->a',
+								   np.einsum('ai,aij->aj', self.mu, self.lmbda), self.mu)
+						-np.sum(np.einsum('i,ij->j', other.mu, other.lmbda) * other.mu)
+						 )
+			gmm.priors = np.exp(Z) * self.priors
+			gmm.priors /= np.sum(gmm.priors)
+
+		else:
+			gmm = GMM(nb_dim=self.nb_dim, nb_states=self.nb_states)
+			gmm.priors = self.priors
+			gmm.mu = np.einsum('aij,aj->ai', self.lmbda, self.mu) + \
+					 np.einsum('aij,aj->ai', other.lmbda, other.mu)
+
+			gmm.lmbda = self.lmbda + other.lmbda
+
+			gmm.mu = np.einsum('aij,aj->ai', gmm.sigma, gmm.mu)
 
 		return gmm
 

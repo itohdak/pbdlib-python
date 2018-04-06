@@ -1,5 +1,6 @@
 import numpy as np
 from functions import *
+from utils import gaussian_moment_matching
 
 class Model(object):
 	"""
@@ -17,6 +18,7 @@ class Model(object):
 		self._sigma = None  # covariance matrix
 		self._sigma_chol = None  # covariance matrix, cholesky decomposition
 		self._lmbda = None  # Precision matrix
+		self._eta = None
 
 		self._reg = None
 		self.nb_dim = nb_dim
@@ -86,6 +88,13 @@ class Model(object):
 		self._mu = value
 
 	@property
+	def eta(self):
+		if self._eta is None:
+			self._eta = np.einsum('aij,aj->ai', self.lmbda, self.mu)
+
+		return self._eta
+
+	@property
 	def sigma_chol(self):
 		"""
 		Cholesky decomposition of covariance matrices of MVNs distributions
@@ -112,6 +121,7 @@ class Model(object):
 
 	@sigma.setter
 	def sigma(self, value):
+		self._eta = None
 		self._lmbda = None
 		self._sigma_chol = None
 		self._sigma = value
@@ -129,6 +139,7 @@ class Model(object):
 
 	@lmbda.setter
 	def lmbda(self, value):
+		self._eta = None
 		self._sigma = None  # reset sigma
 		self._sigma_chol = None
 		self._lmbda = value
@@ -221,9 +232,6 @@ class Model(object):
 			mu_est += [mu_out[i] + np.einsum('ij,aj->ai',
 												inv_sigma_out_in[-1], data_in - mu_in[i])]
 
-			# mu_est += [mu_out[:, i] + 0. * np.einsum('ij,aj->ai',
-			# 									inv_sigma_out_in[-1], data_in - mu_in[:,i])]
-
 			sigma_est += [sigma_out[i] - inv_sigma_out_in[-1].dot(sigma_in_out[i])]
 
 		mu_est, sigma_est = (np.asarray(mu_est), np.asarray(sigma_est))
@@ -231,10 +239,12 @@ class Model(object):
 			return  mu_est, sigma_est
 		# return np.mean(mu_est, axis=0)
 		else:
-			# TODO replace with moment matching implementation. !!! FaLSE covariance
-			return np.sum(h[:, :, None] * mu_est, axis=0), np.sum(h[:,:,None, None] * sigma_est[:, None] ,axis=0)
 
-	def get_marginal(self, dim, dim_out=None):
+			return gaussian_moment_matching(mu_est, sigma_est, h.T)
+			# return np.sum(h[:, :, None] * mu_est, axis=0), np.sum(
+			# 	h[:, :, None, None] * sigma_est[:, None], axis=0)
+
+	def get_marginal(self, dim, dim_out=None, get_eta=False, get_lmbda=False):
 		"""
 		Get marginal model or covariance between blocks of variables
 
@@ -242,15 +252,17 @@ class Model(object):
 		:param dim_out: 	[slice] or [list of index]
 		:return:
 		"""
-		mu, sigma = (self.mu, self.sigma)
+		mu, sigma, eta = (self.mu, self.sigma, self.eta)
+		if get_lmbda:
+			mu, sigma, eta = (self.mu, self.lmbda, self.eta)
 
 		if isinstance(dim, list):
 			if dim_out is not None:
-				dGrid = np.ix_(dim, dim_out)
+				dGrid = np.ix_(range(self.nb_states), dim, dim_out)
 			else:
-				dGrid = np.ix_(dim, dim)
+				dGrid = np.ix_(range(self.nb_states), dim, dim)
 
-			mu, sigma = (mu[:, dim], sigma[:, dGrid])
+			mu, sigma = (mu[:, dim], sigma[dGrid])
 
 		elif isinstance(dim, slice):
 			if dim_out is not None:
@@ -258,5 +270,9 @@ class Model(object):
 			else:
 				mu, sigma = (mu[:, dim], sigma[:, dim, dim])
 
-		return mu, sigma
+		if get_eta:
+			return mu, sigma, eta[:, dim]
+		else:
+			return mu, sigma
+
 
