@@ -485,7 +485,7 @@ def plot_gmm(Mu, Sigma, dim=None, color=[1, 0, 0], alpha=0.5, linewidth=1, marke
 	return l
 
 def plot_gaussian(mu, sigma, dim=None, color='r', alpha=0.5, lw=1, markersize=6,
-			 ax=None, plots=None, nb_segm=24):
+			 ax=None, plots=None, nb_segm=24, **kwargs):
 
 
 	t = np.linspace(-np.pi, np.pi, nb_segm)
@@ -498,7 +498,7 @@ def plot_gaussian(mu, sigma, dim=None, color='r', alpha=0.5, lw=1, markersize=6,
 		center, = p.plot(mu[0], mu[1], '.', color=color, alpha=alpha)  # Mean
 
 		line, =	p.plot(points[0], points[1], color=color, linewidth=lw,
-					markersize=markersize)  # Contour
+					markersize=markersize, **kwargs)  # Contour
 	else:
 		center, line = plots
 		center.set_data(mu[0], mu[1])

@@ -21,7 +21,7 @@ This requires v2.7 of Python.
 Following these instructions install the library without copying the files, allowing to edit the sources files without reinstalling.
 
     git clone git@gitlab.idiap.ch:epignat/pbdlib.git
-    cd pbdlib
+    cd pbdlib-python
     pip install -e .
 
 If pip is not install, you can get it that way:

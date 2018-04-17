@@ -174,6 +174,10 @@ class PoGLQR(object):
 				horizon=self.horizon, dt=self.dt, nb_dim=self.nb_dim)
 		return self._s_u
 
+	@property
+	def xis(self):
+		return self.mvn_sol_xi.mu.reshape(self.horizon, self.xi_dim/self.horizon)
+
 
 	@property
 	def k(self):
