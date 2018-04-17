@@ -221,7 +221,7 @@ class GMM(Model):
 		self.priors = np.ones(self.nb_states) / self.nb_states
 
 	def em(self, data, reg=1e-8, maxiter=100, minstepsize=1e-5, diag=False, reg_finish=False,
-		   kmeans_init=False, random_init=True, dep_mask=None):
+		   kmeans_init=False, random_init=True, dep_mask=None, verbose=False):
 		"""
 
 		:param data:	 		[np.array([nb_timesteps, nb_dim])]
@@ -307,10 +307,11 @@ class GMM(Model):
 						self.sigma = np.einsum(
 							'acj,aic->aij', np.einsum('aic,ac->aci', dx, GAMMA2), dx) + reg_finish
 
-					print colored('Converged after %d iterations: %.3e' % (it, LL[it]), 'red', 'on_white')
+					if verbose:
+						print colored('Converged after %d iterations: %.3e' % (it, LL[it]), 'red', 'on_white')
 					return GAMMA
-
-		print "GMM did not converge before reaching max iteration. Consider augmenting the number of max iterations."
+		if verbose:
+			print "GMM did not converge before reaching max iteration. Consider augmenting the number of max iterations."
 		return GAMMA
 
 

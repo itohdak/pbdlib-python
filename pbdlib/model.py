@@ -1,6 +1,7 @@
 import numpy as np
 from functions import *
 from utils import gaussian_moment_matching
+from plot import plot_gmm
 
 class Model(object):
 	"""
@@ -189,6 +190,28 @@ class Model(object):
 		self._sigma = np.array([np.eye(self.nb_dim) for i in range(self.nb_states)])
 
 
+	def plot(self, *args, **kwargs):
+		"""
+		Plot GMM, circle is 1 std
+
+		:param args:
+		:param kwargs:
+		:return:
+		"""
+		plot_gmm(self.mu, self.sigma, *args, swap=True, **kwargs)
+
+	def sample(self, size=1):
+		"""
+		Generate random samples from GMM
+		:param size: 	[int]
+		:return:
+		"""
+		zs = np.array([np.random.multinomial(1, self.priors) for _ in range(size)]).T
+
+		xs = [z[:, None] * np.random.multivariate_normal(m, s, size=size)
+			  for z, m, s in zip(zs, self.mu, self.sigma)]
+
+		return np.sum(xs, axis=0)
 
 	def condition(self, data_in, dim_in, dim_out, h=None, return_gmm=False):
 		"""
