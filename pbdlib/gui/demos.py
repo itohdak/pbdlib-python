@@ -3,7 +3,14 @@ import os
 import matplotlib.pyplot as plt
 from pbdlib.gui import Interactive
 from termcolor import colored
-import tkinter as tk
+
+try:
+	import tkinter as tk
+except ImportError:
+	import Tkinter as tk
+except:
+	raise
+
 from tkFileDialog import asksaveasfilename
 from matplotlib import gridspec
 import pbdlib as pbd
