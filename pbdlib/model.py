@@ -146,10 +146,15 @@ class Model(object):
 		self._lmbda = value
 
 	def get_dep_mask(self, deps):
-		mask = np.zeros((self.nb_dim, self.nb_dim))
+		mask = np.eye(self.nb_dim)
 
 		for dep in deps:
-			mask[dep, dep] = 1.
+			if isinstance(dep, slice):
+				mask[dep, dep] = 1.
+			elif isinstance(dep, list):
+				dGrid = np.ix_(dep, dep)
+				mask[dGrid] = 1.
+
 
 		return mask
 
