@@ -8,8 +8,9 @@ from .model import Model
 from .mvn import *
 from .plot import *
 from .pylqr import *
-from .poglqr import PoGLQR
+from .poglqr import PoGLQR, SparsePoGLQR
 from .mtmm import MTMM, VBayesianGMM
+from .lqr import LQR
 
 try:
 	import gui
