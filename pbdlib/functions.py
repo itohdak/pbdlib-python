@@ -318,9 +318,9 @@ def multi_variate_normal(x, mu, sigma=None, log=True, gmm=False, lmbda=None):
 		log_lik = -0.5 * np.einsum('...j,...j', dx, np.einsum('...jk,...j->...k', lmbda_, dx))
 
 		if sigma is not None:
-			log_lik -= 0.5 * np.log(np.linalg.det(2 * np.pi * sigma))
+			log_lik -= 0.5 * (x.shape[1] * np.log(2 * np.pi) + np.linalg.slogdet(sigma)[1])
 		else:
-			log_lik += 0.5 * np.log(np.linalg.det(2 * np.pi * lmbda))
+			log_lik += 0.5 * np.linalg.slogdet(2 * np.pi * lmbda)[1]
 
 
 		return log_lik if log else np.exp(log_lik)

@@ -202,7 +202,7 @@ class HMM(GMM):
 		beta = np.zeros((self.nb_states, sample_size))
 		beta[:, -1] = np.ones(self.nb_states) * c[-1]  # Rescaling
 		for t in range(sample_size - 2, -1, -1):
-			beta[:, t] = np.dot(self.Trans, beta[:, t + 1]) * B[:, t + 1]
+			beta[:, t] = np.dot(self.Trans, beta[:, t + 1] * B[:, t + 1])
 			beta[:, t] = np.minimum(beta[:, t] * c[t], realmax)
 
 		# Smooth node marginals, gamma
