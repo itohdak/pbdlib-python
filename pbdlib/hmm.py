@@ -220,6 +220,47 @@ class HMM(GMM):
 
 		return alpha, beta, gamma, zeta, c
 
+	def init_params_random(self, data, left_to_right=False, self_trans=0.9):
+		"""
+
+		:param data:
+		:param left_to_right:  	if True, init with left to right. All observations models
+			will be the same, and transition matrix will be set to l_t_r
+		:type left_to_right: 	bool
+		:param self_trans:		if left_to_right, self transition value to fill
+		:type self_trans:		float
+		:return:
+		"""
+		mu = np.mean(data, axis=0)
+		sigma = np.cov(data.T)
+
+		if left_to_right:
+			self.mu = np.array([mu for i in range(self.nb_states)])
+		else:
+			self.mu = np.array([np.random.multivariate_normal(mu, sigma)
+				 for i in range(self.nb_states)])
+
+		self.sigma = np.array([sigma + self.reg for i in range(self.nb_states)])
+		self.priors = np.ones(self.nb_states) / self.nb_states
+
+		if left_to_right:
+			self.Trans = np.zeros((self.nb_states, self.nb_states))
+			for i in range(self.nb_states):
+				if i < self.nb_states - 1:
+					self.Trans[i, i] = self_trans
+					self.Trans[i, i+1] = 1. - self_trans
+				else:
+					self.Trans[i, i] = 1.
+
+			self.init_priors = np.zeros(self.nb_states)/ self.nb_states
+		else:
+			self.Trans = np.ones((self.nb_states, self.nb_states)) * (1.-self_trans)/(self.nb_states-1)
+			# remove diagonal
+			self.Trans *= (1.-np.eye(self.nb_states))
+			self.Trans += self_trans * np.eye(self.nb_states)
+			self.init_priors = np.ones(self.nb_states)/ self.nb_states
+
+
 	def gmm_init(self, data, **kwargs):
 		if isinstance(data, list):
 			data = np.concatenate(data, axis=0)
@@ -270,6 +311,10 @@ class HMM(GMM):
 			dep_mask = self.get_dep_mask(dep)
 
 		self.reg = reg
+
+		if self.mu is None or self.sigma is None:
+			self.init_params_random(data.T, left_to_right=left_to_right)
+
 		# create regularization matrix
 
 		if left_to_right:

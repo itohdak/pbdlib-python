@@ -95,7 +95,7 @@ class MTMM(GMM):
 		return gmm_out
 
 
-	def condition(self, data_in, dim_in, dim_out, h=None, return_gmm=False):
+	def condition(self, data_in, dim_in, dim_out, h=None, return_gmm=False, reg_in=1e-20):
 		"""
 		[1] M. Hofert, 'On the Multivariate t Distribution,' R J., vol. 5, pp. 129-136, 2013.
 
@@ -140,7 +140,7 @@ class MTMM(GMM):
 		_, sigma_in_out = self.get_marginal(dim_in, dim_out)
 
 		for i in range(self.nb_states):
-			inv_sigma_in_in += [np.linalg.inv(sigma_in[i])]
+			inv_sigma_in_in += [np.linalg.inv(sigma_in[i] + reg_in * np.eye(sigma_in.shape[-1]))]
 			inv_sigma_out_in += [sigma_in_out[i].T.dot(inv_sigma_in_in[-1])]
 			dx = data_in - mu_in[i]
 			mu_est += [mu_out[i] + np.einsum('ij,aj->ai',
