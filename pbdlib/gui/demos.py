@@ -1,3 +1,4 @@
+#!/usr/bin/env python2.7
 import numpy as np
 import os
 import matplotlib.pyplot as plt

@@ -9,7 +9,8 @@ from .mvn import *
 from .plot import *
 from .pylqr import *
 from .poglqr import PoGLQR, SparsePoGLQR
-from .mtmm import MTMM, VBayesianGMM
+from .poglqr import PoGLQR
+from .mtmm import MTMM, VBayesianGMM, VMBayesianGMM
 from .lqr import LQR
 
 try:

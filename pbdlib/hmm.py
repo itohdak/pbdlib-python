@@ -181,7 +181,6 @@ class HMM(GMM):
 		B, _ = self.obs_likelihood(demo, dep, marginal, sample_size)
 		# if table is not None:
 		# 	B *= table[:, [n]]
-
 		self._B = B
 
 		# forward variable alpha (rescaled)
@@ -269,8 +268,24 @@ class HMM(GMM):
 		self.init_priors = np.ones(self.nb_states) / self.nb_states
 		self.Trans = np.ones((self.nb_states, self.nb_states))/self.nb_states
 
+	def init_loop(self, demos):
+		self.Trans = 0.98 * np.eye(self.nb_states)
+		for i in range(self.nb_states-1):
+			self.Trans[i, i + 1] = 0.02
+
+		self.Trans[-1, 0] = 0.02
+
+		data = np.concatenate(demos, axis=0)
+		_mu = np.mean(data, axis=0)
+		_cov = np.cov(data.T)
+
+		self.mu = np.array([_mu for i in range(self.nb_states)])
+		self.sigma = np.array([_cov for i in range(self.nb_states)])
+
+		self.init_priors = np.array([1.] + [0. for i in range(self.nb_states-1)])
+
 	def em(self, demos, dep=None, reg=1e-8, table=None, end_cov=False, cov_type='full', dep_mask=None,
-		   reg_finish=None, left_to_right=False):
+		   reg_finish=None, left_to_right=False, nb_max_steps=40, loop=False):
 		"""
 
 		:param demos:	[list of np.array([nb_timestep, nb_dim])]
@@ -295,8 +310,7 @@ class HMM(GMM):
 
 		if reg_finish is not None: end_cov = True
 
-		nb_min_steps = 5  # min num iterations
-		nb_max_steps = 50  # max iterations
+		nb_min_steps = 2  # min num iterations
 		max_diff_ll = 1e-4  # max log-likelihood increase
 
 		nb_samples = len(demos)
@@ -317,10 +331,12 @@ class HMM(GMM):
 
 		# create regularization matrix
 
-		if left_to_right:
+		if left_to_right or loop:
 			mask = np.eye(self.Trans.shape[0])
 			for i in range(self.Trans.shape[0] - 1):
 				mask[i, i + 1] = 1.
+			if loop:
+				mask[-1, 0] = 1.
 
 		if dep_mask is not None:
 			self.sigma *= dep_mask
@@ -364,7 +380,7 @@ class HMM(GMM):
 			self.Trans = np.sum(zeta, axis=2) / (np.sum(gamma_trk, axis=1) + realmin)
 
 
-			if left_to_right:
+			if left_to_right or loop:
 				self.Trans *= mask
 				self.Trans /= np.sum(self.Trans, axis=0, keepdims=True)
 

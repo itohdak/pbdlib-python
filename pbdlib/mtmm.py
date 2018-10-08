@@ -164,6 +164,15 @@ class MTMM(GMM):
 
 class VBayesianGMM(MTMM):
 	def __init__(self, sk_parameters, *args, **kwargs):
+		"""
+		self.model = tff.VBayesianGMM(
+			{'n_components':5, 'n_init':4, 'reg_covar': 0.006 ** 2,
+         'covariance_prior': 0.02 ** 2 * np.eye(12),'mean_precision_prior':1e-9})
+
+		:param sk_parameters:
+		:param args:
+		:param kwargs:
+		"""
 		MTMM.__init__(self, *args, **kwargs)
 
 		from sklearn import mixture
@@ -197,7 +206,7 @@ class VBayesianGMM(MTMM):
 			_gmm.priors = self.priors
 			self._posterior_samples += [_gmm]
 
-	def posterior(self, data, dims=slice(0, 7)):
+	def posterior(self, data, dims=slice(0, 7), mean_scale=10., cov=None, dp=True):
 
 		self.nb_dim = data.shape[1]
 
@@ -206,7 +215,6 @@ class VBayesianGMM(MTMM):
 		states = np.where(self._sk_model.weights_ > 5e-2)[0]
 
 		self.nb_states = states.shape[0]
-
 		# see [1] K. P. Murphy, 'Conjugate Bayesian analysis of the Gaussian distribution,' vol. 0, no. 7, 2007. par 9.4
 		# or [1] E. Fox, 'Bayesian nonparametric learning of complex dynamical phenomena,' 2009, p 55
 		self.priors = np.copy(self._sk_model.weights_[states])
@@ -216,6 +224,23 @@ class VBayesianGMM(MTMM):
 		self.sigma = np.copy(self._sk_model.covariances_[states]) * (
 		self.k[:, None, None] + 1) * self.nu[:, None, None] \
 					 / (self.k[:, None, None] * (self.nu[:, None, None] - self.nb_dim + 1))
+
+		# add new state, base measure TODO make not heuristic
+
+		if dp:
+			self.priors = np.concatenate([self.priors, 0.02 * np.ones((1,))], 0)
+			self.priors /= np.sum(self.priors)
+
+			self.mu = np.concatenate([self.mu, np.zeros((1, self.nb_dim))], axis=0)
+			if cov is None:
+				cov = mean_scale ** 2 * np.eye(self.nb_dim)
+
+			self.sigma = np.concatenate([self.sigma, cov[None]], axis=0)
+
+			self.k = np.concatenate([self.k, np.ones((1, ))], axis=0)
+			self.nu = np.concatenate([self.nu, np.ones((1, ))], axis=0)
+
+			self.nb_states = states.shape[0] + 1
 
 	def condition(self, *args, **kwargs):
 		if not kwargs.get('samples', False):
@@ -237,3 +262,53 @@ class VBayesianGMM(MTMM):
 
 		return mu, sigma
 
+class VMBayesianGMM(VBayesianGMM):
+	def __init__(self, n, sk_parameters, *args, **kwargs):
+		"""
+		Multimodal posterior approximation using a several training
+
+		self.model = tff.VMBayesianGMM(
+			{'n_components':5, 'n_init':4, 'reg_covar': 0.006 ** 2,
+         'covariance_prior': 0.02 ** 2 * np.eye(12),'mean_precision_prior':1e-9})
+
+		:param n:  	number of evaluations
+		:param sk_parameters:
+		:param args:
+		:param kwargs:
+		"""
+
+		self.models = [VBayesianGMM(sk_parameters, *args, **kwargs) for i in range(n)]
+		self.n = n
+		self._training_data = None
+
+	def posterior(self, data, *args, **kwargs):
+		for model in self.models:
+			model.posterior(data, *args, **kwargs)
+
+	def condition(self, *args, **kwargs):
+		params = []
+
+		for model in self.models:
+			params += [model.condition(*args, **kwargs)]
+
+		# TODO check how to compute priors in a good way
+		params = zip(*params)
+		mu, sigma = gaussian_moment_matching(np.array(params[0]),
+													   np.array(params[1]))
+
+		return mu, sigma
+
+	@property
+	def nb_states(self):
+		return [model.nb_states for model in self.models]
+
+	def plot(self, *args, **kwargs):
+		import matplotlib
+		cmap = kwargs.pop('cmap', 'viridis')
+
+		colors = matplotlib.cm.get_cmap(cmap, self.n)
+
+		for i, model in enumerate(self.models):
+			color = colors(i)
+			kwargs['color'] = [color[i] for i in range(3)]
+			model.plot(*args, **kwargs)

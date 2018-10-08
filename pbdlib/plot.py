@@ -269,6 +269,36 @@ def plot_linear_system(K, b=None, name=None, nb_sub=10, ax0=None, xlim=[-1, 1], 
 		return [strm]
 
 
+def plot_function_map(f, nb_sub=10, ax0=None, xlim=[-1, 1], ylim=[-1, 1], opp=False):
+	"""
+
+	:param f:			[function]
+	 	A function to plot that can take an array((N, nb_dim)) as input
+	:param nb_sub:
+	:param ax0:
+	:param xlim:
+	:param ylim:
+	:return:
+	"""
+	x = np.linspace(*xlim)
+	y = np.linspace(*ylim)
+	xx, yy = np.meshgrid(x, y)
+
+	# Y, X = np.mgrid[ylim[0]:ylim[1]:complex(nb_sub), xlim[0]:xlim[1]:complex(nb_sub)]
+	mesh_data = np.concatenate([np.atleast_2d(xx.ravel()), np.atleast_2d(yy.ravel())]).T
+	try:
+		zz = f(mesh_data)
+	except: # if function cannot take a vector as input
+		zz = np.array([f(_x) for _x in mesh_data])
+	z = zz.reshape(xx.shape)
+
+
+	CS = plt.contour(xx, yy, z, cmap='viridis')
+	plt.clabel(CS, inline=1, fontsize=10)
+	if opp: z = -z
+	plt.imshow(np.exp(z), interpolation='bilinear', origin='lower', extent=xlim + ylim,
+			   alpha=0.5, cmap='viridis')
+
 def plot_mixture_linear_system(model, mode='glob', nb_sub=20, gmm=True, min_alpha=0.,
 							   cmap=plt.cm.jet, A=None,b=None, gmr=False, return_strm=False,
 							   **kwargs):
@@ -351,7 +381,7 @@ def plot_mixture_linear_system(model, mode='glob', nb_sub=20, gmm=True, min_alph
 
 
 def plot_gmm(Mu, Sigma, dim=None, color=[1, 0, 0], alpha=0.5, linewidth=1, markersize=6,
-			 ax=None, empty=False, edgecolor=None, edgealpha=None,
+			 ax=None, empty=False, edgecolor=None, edgealpha=None, priors=None,
 			 border=False, nb=1, swap=True, center=True):
 	''' This function displays the parameters of a Gaussian Mixture Model (GMM).
 
@@ -393,6 +423,9 @@ def plot_gmm(Mu, Sigma, dim=None, color=[1, 0, 0], alpha=0.5, linewidth=1, marke
 			sl = np.ix_(dim, dim)
 			Sigma = Sigma[sl]
 
+	if priors is not None:
+		priors /= np.max(priors)
+		priors = np.clip(priors, 0.1, 1.)
 
 	nbDrawingSeg = 35;
 	t = np.linspace(-np.pi, np.pi, nbDrawingSeg);
@@ -422,6 +455,8 @@ def plot_gmm(Mu, Sigma, dim=None, color=[1, 0, 0], alpha=0.5, linewidth=1, marke
 
 		if edgecolor is None:
 			edgecolor = c
+
+		if priors is not None: a *= priors[i]
 
 		polygon = plt.Polygon(points.transpose().tolist(), facecolor=c, alpha=a,
 							  linewidth=linewidth, zorder=20, edgecolor=edgecolor)
@@ -506,6 +541,74 @@ def plot_gaussian(mu, sigma, dim=None, color='r', alpha=0.5, lw=1, markersize=6,
 
 
 	return center, line
+
+def plot_y_gaussian(x, mu, sigma, dim=0, alpha=1., alpha_fill=None, color='r', lw=1.):
+	"""
+
+	:param mu: 		[n_states]
+	:param mu: 		[n_states, n_dim]
+	:param sigma: 	[n_states, n_dim, n_dim]
+	:param dim:
+	:return:
+	"""
+	if x.ndim == 2:
+		x = x[:, 0]
+
+	if alpha_fill is None:
+		alpha_fill = 0.4 * alpha
+
+	plt.plot(x, mu[:, dim], alpha=alpha, color=color)
+	plt.fill_between(x,
+					 mu[:, dim] - sigma[:, dim, dim] ** 0.5,
+					 mu[:, dim] + sigma[:, dim, dim] ** 0.5,
+					 alpha=alpha_fill, color=color)
+
+def plot_dynamic_system(f, nb_sub=10, ax=None, xlim=[-1, 1], ylim=[-1, 1], scale=0.01,
+						name=None, equal=False, **kwargs):
+	"""
+	Plot a dynamical system dx = f(x)
+	:param f: 		a function that takes as input x as [N,2] and return dx [N, 2]
+	:param nb_sub:
+	:param ax0:
+	:param xlim:
+	:param ylim:
+	:param scale:
+	:param kwargs:
+	:return:
+	"""
+
+	Y, X = np.mgrid[ylim[0]:ylim[1]:complex(nb_sub), xlim[0]:xlim[1]:complex(nb_sub)]
+	mesh_data = np.vstack([X.ravel(), Y.ravel()])
+
+	field = f(mesh_data.T).T
+
+	U = field[0]
+	V = field[1]
+	U = U.reshape(nb_sub, nb_sub)
+	V = V.reshape(nb_sub, nb_sub)
+	speed = np.sqrt(U * U + V * V)
+
+
+	if name is not None:
+		plt.suptitle(name)
+
+	if ax is not None:
+		strm = ax.streamplot(X, Y, U, V, linewidth=scale* speed,**kwargs)
+		ax.set_xlim(xlim)
+		ax.set_ylim(ylim)
+
+		if equal:
+			ax.set_aspect('equal')
+
+	else:
+		strm = plt.streamplot(X, Y, U, V, linewidth=scale* speed, **kwargs)
+		plt.xlim(xlim)
+		plt.ylim(ylim)
+
+		if equal:
+			plt.axes().set_aspect('equal')
+
+	return [strm]
 
 def plot_trajdist(td, ix=0, iy=1, covScale=1, color=[1, 0, 0], alpha=0.1, linewidth=0.1):
 	'''Plot 2D representation of a trajectory distribution'''

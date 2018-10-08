@@ -227,7 +227,7 @@ class GMM(Model):
 		self.priors = np.ones(self.nb_states) / self.nb_states
 
 	def em(self, data, reg=1e-8, maxiter=100, minstepsize=1e-5, diag=False, reg_finish=False,
-		   kmeans_init=False, random_init=True, dep_mask=None, verbose=False):
+		   kmeans_init=False, random_init=True, dep_mask=None, verbose=False, only_scikit=False):
 		"""
 
 		:param data:	 		[np.array([nb_timesteps, nb_dim])]
@@ -265,6 +265,7 @@ class GMM(Model):
 		else:
 			self.init_params_scikit(data)
 
+		if only_scikit: return
 		data = data.T
 
 		LL = np.zeros(nb_max_steps)

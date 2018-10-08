@@ -104,7 +104,7 @@ def gu_pinv(A, rcond=1e-15):
 	return np.array([[np.linalg.pinv(A[i, j]) for j in range(J)] for i in range(I)])
 
 
-def _create_relative_time(q, start=-1.):
+def create_relative_time(q, start=-1.):
 	"""
 	:param 	q:		[list of int]
 		List of state indicator.
@@ -139,7 +139,7 @@ def align_trajectories_hsmm(data, nb_states=5):
 
 	qs = [model.viterbi(d) for d in data_vectorized]
 
-	time, sqs = zip(*[_create_relative_time(q) for q in qs])
+	time, sqs = zip(*[create_relative_time(q) for q in qs])
 
 	start_idx = [np.array((np.nonzero(np.diff(q))[0] + 1).tolist()) for q in qs]
 
