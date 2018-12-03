@@ -395,7 +395,8 @@ def plot_gmm(Mu, Sigma, dim=None, color=[1, 0, 0], alpha=0.5, linewidth=1, marke
 			 Note- Daniel Berio, switched matrix layout to be consistent with pbdlib matlab,
 				   probably breaks with gmm now.
 	'''
-
+	Mu = np.array(Mu)
+	Sigma = np.array(Sigma)
 	if (Mu.ndim == 1):
 		if not swap:
 			Mu = Mu[:, np.newaxis]
@@ -522,6 +523,7 @@ def plot_gmm(Mu, Sigma, dim=None, color=[1, 0, 0], alpha=0.5, linewidth=1, marke
 def plot_gaussian(mu, sigma, dim=None, color='r', alpha=0.5, lw=1, markersize=6,
 			 ax=None, plots=None, nb_segm=24, **kwargs):
 
+	mu, sigma = np.array(mu), np.array(sigma)
 
 	t = np.linspace(-np.pi, np.pi, nb_segm)
 	R = np.real(sp.linalg.sqrtm(1.0 * sigma))
@@ -542,7 +544,8 @@ def plot_gaussian(mu, sigma, dim=None, color='r', alpha=0.5, lw=1, markersize=6,
 
 	return center, line
 
-def plot_y_gaussian(x, mu, sigma, dim=0, alpha=1., alpha_fill=None, color='r', lw=1.):
+def plot_y_gaussian(x, mu, sigma, dim=0, alpha=1., alpha_fill=None, color='r', lw=1.,
+					ax=None):
 	"""
 
 	:param mu: 		[n_states]
@@ -557,8 +560,11 @@ def plot_y_gaussian(x, mu, sigma, dim=0, alpha=1., alpha_fill=None, color='r', l
 	if alpha_fill is None:
 		alpha_fill = 0.4 * alpha
 
-	plt.plot(x, mu[:, dim], alpha=alpha, color=color)
-	plt.fill_between(x,
+	if ax is None:
+		ax = plt
+
+	ax.plot(x, mu[:, dim], alpha=alpha, color=color)
+	ax.fill_between(x,
 					 mu[:, dim] - sigma[:, dim, dim] ** 0.5,
 					 mu[:, dim] + sigma[:, dim, dim] ** 0.5,
 					 alpha=alpha_fill, color=color)

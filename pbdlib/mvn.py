@@ -140,7 +140,22 @@ class MVN(object):
 		self.sigma = np.cov(data.T)
 		self.lmbda = np.linalg.inv(self.sigma)
 
-	def log_prob(self, x):
+	def log_prob(self, x, marginal=None, reg=None):
+		"""
+
+		:param x:
+		:param marginal:
+		:type marginal: slice
+		:return:
+		"""
+		if marginal is not None:
+			_mu = self.mu[marginal]
+			_sigma = self.sigma[marginal, marginal]
+
+			if reg is not None:
+				_sigma += np.eye(marginal.stop-marginal.start) * reg
+			return multi_variate_normal(x, _mu, _sigma)
+
 		return multi_variate_normal(x, self.mu, self.sigma)
 
 	def transform(self, A, b=None, dA=None, db=None):

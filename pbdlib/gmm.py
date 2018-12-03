@@ -163,7 +163,7 @@ class GMM(Model):
 				mvn._lmbda = ss.block_diag([self.lmbda[i] for i in q])
 			return mvn
 
-	def compute_resp(self, demo=None, dep=None, table=None, marginal=None, ):
+	def compute_resp(self, demo=None, dep=None, table=None, marginal=None, norm=True):
 		sample_size = demo.shape[0]
 
 		B = np.ones((self.nb_states, sample_size))
@@ -186,15 +186,22 @@ class GMM(Model):
 						B[[i], :] *= multi_variate_normal(demo, mu[i, d],
 														  sigma[dGrid][:, :, 0], log=False)
 		B *= self.priors[:, None]
-		return B/np.sum(B, axis=0)
+		if norm:
+			return B/np.sum(B, axis=0)
+		else:
+			return B
 
-	def init_params_scikit(self, data):
+	def init_params_scikit(self, data, cov_type='full'):
 		from sklearn.mixture import BayesianGaussianMixture, GaussianMixture
-		gmm_init = GaussianMixture(self.nb_states, 'full', n_init=10, init_params='random')
+		gmm_init = GaussianMixture(self.nb_states, cov_type, n_init=5, init_params='random')
 		gmm_init.fit(data)
 
 		self.mu = gmm_init.means_
-		self.sigma = gmm_init.covariances_
+		if cov_type == 'diag':
+			self.sigma = np.array([np.diag(gmm_init.covariances_[i]) for i in range(self.nb_states)])
+		else:
+			self.sigma = gmm_init.covariances_
+
 		self.priors = gmm_init.weights_
 
 		self.Trans = np.ones((self.nb_states, self.nb_states)) * 0.01
@@ -227,7 +234,8 @@ class GMM(Model):
 		self.priors = np.ones(self.nb_states) / self.nb_states
 
 	def em(self, data, reg=1e-8, maxiter=100, minstepsize=1e-5, diag=False, reg_finish=False,
-		   kmeans_init=False, random_init=True, dep_mask=None, verbose=False, only_scikit=False):
+		   kmeans_init=False, random_init=True, dep_mask=None, verbose=False, only_scikit=False,
+		    no_init=False):
 		"""
 
 		:param data:	 		[np.array([nb_timesteps, nb_dim])]
@@ -256,14 +264,16 @@ class GMM(Model):
 
 		nb_samples = data.shape[0]
 
-
-
-		if random_init:
-			self.init_params_random(data)
-		elif kmeans_init:
-			self.init_params_kmeans(data)
-		else:
-			self.init_params_scikit(data)
+		if not no_init:
+			if random_init and not only_scikit:
+				self.init_params_random(data)
+			elif kmeans_init and not only_scikit:
+				self.init_params_kmeans(data)
+			else:
+				if diag:
+					self.init_params_scikit(data, 'diag')
+				else:
+					self.init_params_scikit(data, 'full')
 
 		if only_scikit: return
 		data = data.T
