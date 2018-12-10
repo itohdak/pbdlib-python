@@ -16,7 +16,7 @@ class PoGLQR(object):
 		self.B = B
 		self.nb_dim = nb_dim
 		self.dt = dt
-
+		
 		self._s_xi, self._s_u = None, None
 		self._x0 = None
 
@@ -44,7 +44,7 @@ class PoGLQR(object):
 		self._B = value
 
 	@property
-	def u_dim(self):
+	def mvn_u_dim(self):
 		"""
 		Number of dimension of input sequence lifted form
 		:return:
@@ -55,7 +55,7 @@ class PoGLQR(object):
 			return self.nb_dim * self.horizon
 
 	@property
-	def xi_dim(self):
+	def mvn_xi_dim(self):
 
 		"""
 		Number of dimension of state sequence lifted form
@@ -65,6 +65,29 @@ class PoGLQR(object):
 			return self.A.shape[0] * self.horizon
 		else:
 			return self.nb_dim * self.horizon * 2
+
+	@property
+	def u_dim(self):
+		"""
+		Number of dimension of input
+		:return:
+		"""
+		if self.B is not None:
+			return self.B.shape[1]
+		else:
+			return self.nb_dim
+
+	@property
+	def xi_dim(self):
+
+		"""
+		Number of dimension of state
+		:return:
+		"""
+		if self.A is not None:
+			return self.A.shape[0]
+		else:
+			return self.nb_di * 2
 
 	@property
 	def mvn_sol_u(self):
@@ -85,14 +108,14 @@ class PoGLQR(object):
 	@property
 	def seq_xi(self):
 		if self._seq_xi is None:
-			self._seq_xi =  self.mvn_sol_xi.mu.reshape(self.horizon, self.nb_dim * 2)
+			self._seq_xi =  self.mvn_sol_xi.mu.reshape(self.horizon, self.xi_dim)
 
 		return self._seq_xi
 
 	@property
 	def seq_u(self):
 		if self._seq_u is None:
-			self._seq_u = self.mvn_sol_u.mu.reshape(self.horizon, self.nb_dim)
+			self._seq_u = self.mvn_sol_u.mu.reshape(self.horizon, self.u_dim)
 
 		return self._seq_u
 
@@ -153,7 +176,7 @@ class PoGLQR(object):
 			self._mvn_u = value
 		else:
 			self._mvn_u = pbd.MVN(
-				mu=np.zeros(self.u_dim), lmbda=10 ** value * np.eye(self.u_dim))
+				mu=np.zeros(self.mvn_u_dim), lmbda=10 ** value * np.eye(self.mvn_u_dim))
 
 	@property
 	def x0(self):
@@ -179,7 +202,7 @@ class PoGLQR(object):
 	def k(self):
 		# return self.mvn_sol_u.sigma.dot(self.s_u.T.dot(self.mvn_xi.lmbda)).dot(self.s_xi).reshape(
 		return self.mvn_sol_u.sigma.dot(self.s_u.T.dot(self.mvn_xi.lmbda)).dot(self.s_xi).reshape(
-			(self.horizon, self.u_dim/self.horizon, self.xi_dim/self.horizon))
+			(self.horizon, self.mvn_u_dim/self.horizon, self.mvn_xi_dim/self.horizon))
 
 	@property
 	def s_xi(self):

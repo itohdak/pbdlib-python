@@ -84,7 +84,7 @@ class GMM(Model):
 
 		return gmm
 
-	def concatenate_gaussian(self, q, get_mvn=True):
+	def concatenate_gaussian(self, q, get_mvn=True, reg=None):
 		"""
 		Get a concatenated-block-diagonal replication of the GMM with sequence of state
 		given by q.
@@ -95,15 +95,29 @@ class GMM(Model):
 
 		:return:
 		"""
-		if not get_mvn:
-			return np.concatenate([self.mu[i] for i in q]), block_diag(*[self.sigma[i] for i in q])
-		else:
-			mvn = MVN()
-			mvn.mu = np.concatenate([self.mu[i] for i in q])
-			mvn._sigma = block_diag(*[self.sigma[i] for i in q])
-			mvn._lmbda = block_diag(*[self.lmbda[i] for i in q])
+		if reg is None:
+			if not get_mvn:
+				return np.concatenate([self.mu[i] for i in q]), block_diag(*[self.sigma[i] for i in q])
+			else:
+				mvn = MVN()
+				mvn.mu = np.concatenate([self.mu[i] for i in q])
+				mvn._sigma = block_diag(*[self.sigma[i] for i in q])
+				mvn._lmbda = block_diag(*[self.lmbda[i] for i in q])
 
-			return mvn
+				return mvn
+		else:
+			if not get_mvn:
+				return np.concatenate([self.mu[i] for i in q]), block_diag(
+					*[self.sigma[i] + reg for i in q])
+			else:
+				mvn = MVN()
+				mvn.mu = np.concatenate([self.mu[i] for i in q])
+				mvn._sigma = block_diag(*[self.sigma[i] + reg for i in q])
+				mvn._lmbda = block_diag(*[np.linalg.inv(self.sigma[i] + reg) for i in q])
+
+				return mvn
+
+
 
 	def compute_resp(self, demo=None, dep=None, table=None, marginal=None, ):
 		sample_size = demo.shape[0]
@@ -169,7 +183,7 @@ class GMM(Model):
 		self.priors = np.ones(self.nb_states) / self.nb_states
 
 	def em(self, data, reg=1e-8, maxiter=100, minstepsize=1e-5, diag=False, reg_finish=False,
-		   kmeans_init=False, random_init=True, dep_mask=None):
+		   kmeans_init=False, random_init=True, dep_mask=None, no_init=False):
 		"""
 
 		:param data:	 		[np.array([nb_timesteps, nb_dim])]
@@ -199,13 +213,13 @@ class GMM(Model):
 		nb_samples = data.shape[0]
 
 
-
-		if random_init:
-			self.init_params_random(data)
-		elif kmeans_init:
-			self.init_params_kmeans(data)
-		else:
-			self.init_params_scikit(data)
+		if not no_init:
+			if random_init:
+				self.init_params_random(data)
+			elif kmeans_init:
+				self.init_params_kmeans(data)
+			else:
+				self.init_params_scikit(data)
 
 		data = data.T
 
