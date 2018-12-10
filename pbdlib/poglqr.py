@@ -1,6 +1,7 @@
 import numpy as np
 from utils.utils import lifted_transfer_matrix
 import pbdlib as pbd
+import scipy.sparse as ss
 
 class PoGLQR(object):
 	"""
@@ -190,12 +191,10 @@ class PoGLQR(object):
 
 		self._x0 = value
 
+
 	@property
-	def s_u(self):
-		if self._s_u is None:
-			self._s_xi, self._s_u = lifted_transfer_matrix(self.A, self.B,
-				horizon=self.horizon, dt=self.dt, nb_dim=self.nb_dim)
-		return self._s_u
+	def xis(self):
+		return self.mvn_sol_xi.mu.reshape(self.horizon, self.xi_dim/self.horizon)
 
 
 	@property
@@ -204,6 +203,12 @@ class PoGLQR(object):
 		return self.mvn_sol_u.sigma.dot(self.s_u.T.dot(self.mvn_xi.lmbda)).dot(self.s_xi).reshape(
 			(self.horizon, self.mvn_u_dim/self.horizon, self.mvn_xi_dim/self.horizon))
 
+	@property
+	def s_u(self):
+		if self._s_u is None:
+			self._s_xi, self._s_u = lifted_transfer_matrix(self.A, self.B,
+				horizon=self.horizon, dt=self.dt, nb_dim=self.nb_dim)
+		return self._s_u
 	@property
 	def s_xi(self):
 		if self._s_xi is None:
@@ -230,3 +235,43 @@ class PoGLQR(object):
 
 
 		self._horizon = value
+
+
+class SparsePoGLQR(PoGLQR):
+	@property
+	def mvn_u(self):
+		"""
+		Distribution of control input
+		:return:
+		"""
+		return self._mvn_u
+	@mvn_u.setter
+	def mvn_u(self, value):
+		"""
+		:param value 		[float] or [pbd.MVN]
+		"""
+		# resetting solution
+		self._mvn_sol_xi = None
+		self._mvn_sol_u = None
+		self._seq_u = None
+		self._seq_xi = None
+
+		if isinstance(value, pbd.MVN):
+			self._mvn_u = value
+		else:
+			self._mvn_u = pbd.SparseMVN(
+				mu=np.zeros(self.u_dim), lmbda=10 ** value * ss.eye(self.u_dim))
+
+	@property
+	def s_u(self):
+		if self._s_u is None:
+			self._s_xi, self._s_u = lifted_transfer_matrix(self.A, self.B,
+				horizon=self.horizon, dt=self.dt, nb_dim=self.nb_dim, sparse=True)
+		return self._s_u
+	@property
+	def s_xi(self):
+		if self._s_xi is None:
+			self._s_xi, self._s_u = lifted_transfer_matrix(self.A, self.B,
+				horizon=self.horizon, dt=self.dt, nb_dim=self.nb_dim, sparse=True)
+
+		return self._s_xi

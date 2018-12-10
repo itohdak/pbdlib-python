@@ -34,7 +34,14 @@ class MVN(object):
 		self._lmbdaT = None
 		self._muT = None
 
-		self.nb_dim = self._mu.shape[0] if self._mu is not None else nb_dim
+		if mu is not None:
+			self.nb_dim = mu.shape[0]
+		elif sigma is not None:
+			self.nb_dim = sigma.shape[0]
+		elif lmbda is not None:
+			self.nb_dim = lmbda.shape[0]
+		else:
+			self.nb_dim = nb_dim
 
 	@property
 	def eta(self):
@@ -50,6 +57,8 @@ class MVN(object):
 
 	@property
 	def mu(self):
+		if self._mu is None:
+			self._mu = np.zeros(self.nb_dim)
 		return self._mu
 
 	@mu.setter
@@ -131,13 +140,28 @@ class MVN(object):
 		self.sigma = np.cov(data.T)
 		self.lmbda = np.linalg.inv(self.sigma)
 
-	def log_prob(self, x):
+	def log_prob(self, x, marginal=None, reg=None):
+		"""
+
+		:param x:
+		:param marginal:
+		:type marginal: slice
+		:return:
+		"""
+		if marginal is not None:
+			_mu = self.mu[marginal]
+			_sigma = self.sigma[marginal, marginal]
+
+			if reg is not None:
+				_sigma += np.eye(marginal.stop-marginal.start) * reg
+			return multi_variate_normal(x, _mu, _sigma)
+
 		return multi_variate_normal(x, self.mu, self.sigma)
 
 	def transform(self, A, b=None, dA=None, db=None):
 		if b is None: b = np.zeros(A.shape[0])
 		if dA is None:
-			return MVN(mu=A.dot(self.mu) + b, sigma=A.dot(self.sigma).dot(A.T))
+			return type(self)(mu=A.dot(self.mu) + b, sigma=A.dot(self.sigma).dot(A.T))
 		else:
 			return self.transform_uncertainty(A, b, dA=None, db=None)
 
@@ -152,7 +176,7 @@ class MVN(object):
 		A_pinv = np.linalg.pinv(A)
 		lmbda = A.T.dot(self.lmbda).dot(A)
 
-		return MVN(mu=A_pinv.dot(self.mu - b), lmbda=lmbda)
+		return type(self)(mu=A_pinv.dot(self.mu - b), lmbda=lmbda)
 
 	def inv_trans_s(self, A, b):
 		"""
@@ -161,7 +185,7 @@ class MVN(object):
 		:param b:
 		:return:
 		"""
-		mvn = MVN(nb_dim=A.shape[1])
+		mvn = type(self)(nb_dim=A.shape[1])
 		mvn._muT = self.mu - b
 		mvn._lmbdaT = A.T.dot(self.lmbda)
 		mvn.lmbda = A.T.dot(self.lmbda).dot(A)
@@ -173,7 +197,7 @@ class MVN(object):
 			self.mu, self.sigma, data, dim_in, dim_out)
 
 		if data.ndim == 1:
-			conditional_mvn = MVN(mu=mu[0], sigma=sigma[0])
+			conditional_mvn = type(self)(mu=mu[0], sigma=sigma[0])
 		else:
 			conditional_mvn = pbd.GMM()
 			conditional_mvn.mu, conditional_mvn.sigma = mu, sigma
@@ -254,3 +278,51 @@ class MVN(object):
 
 	def pdf(self, x):
 		return mvn_pdf(x, self.mu[None], self.sigma_chol[None], self.lmbda[None])
+
+import scipy.sparse as ss
+import scipy.sparse.linalg as sl
+
+class SparseMVN(MVN):
+	@property
+	def sigma(self):
+		if self._sigma is None and not self._lmbda is None:
+			self._sigma = sl.inv(self._lmbda)
+		return self._sigma
+
+	@sigma.setter
+	def sigma(self, value):
+		self.nb_dim = value.shape[0]
+		self._lmbda = None
+		self._sigma_chol = None
+		self._sigma = value
+		self._eta = None
+
+	@property
+	def lmbda(self):
+		if self._lmbda is None and not self._sigma is None:
+			self._lmbda = sl.inv(self._sigma)
+		return self._lmbda
+
+	@lmbda.setter
+	def lmbda(self, value):
+		self._sigma = None  # reset sigma
+		self._sigma_chol = None
+		self._lmbda = value
+		self._eta = None
+
+	# @profile
+	def __mod__(self, other):
+		"""
+		Product of transformed experts with elimination of pseudo-inverse
+
+		:param other:
+		:return:
+		"""
+
+		prod = type(self)()
+		prod.lmbda = self.lmbda + other.lmbda
+		prod.sigma = sl.inv(prod.lmbda)
+		prod.mu = prod.sigma.dot(
+			self.lmbdaT.dot(self.muT) + other.lmbdaT.dot(other.muT))
+
+		return prod

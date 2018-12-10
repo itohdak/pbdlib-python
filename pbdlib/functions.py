@@ -251,7 +251,47 @@ def mvn_pdf(x, mu, sigma_chol, lmbda, sigma=None, reg=None):
 	# 	np.log(sigma_chol[i].diagonal(axis1=0, axis2=1)), axis=0)
 	# 				   for i in range(N)])
 
-def multi_variate_normal(x, mu, sigma, log=True, gmm=False, lmbda=None):
+def multi_variate_t(x, nu, mu, sigma=None, log=True, gmm=False, lmbda=None):
+	"""
+	Multivariatve T-distribution PDF
+	https://en.wikipedia.org/wiki/Multivariate_t-distribution
+
+	:param x:		np.array([nb_samples, nb_dim])
+	:param mu: 		np.array([nb_dim])
+	:param sigma: 	np.array([nb_dim, nb_dim])
+	:param log: 	bool
+	:return:
+	"""
+	from scipy.special import gamma
+	if not gmm:
+		if type(sigma) is float:
+			sigma = np.array(sigma, ndmin=2)
+		if type(mu) is float:
+			mu = np.array(mu, ndmin=1)
+		if sigma is not None:
+			sigma = sigma[None, None] if sigma.shape == () else sigma
+
+		mu = mu[None] if mu.shape == () else mu
+		x = x[:, None] if x.ndim == 1 else x
+
+		p = mu.shape[0]
+
+		dx = mu - x
+		lmbda_ = np.linalg.inv(sigma) if lmbda is None else lmbda
+
+		dist = np.einsum('...j,...j', dx, np.einsum('...jk,...j->...k', lmbda_, dx))
+		# (nb_timestep, )
+
+		lik = gamma((nu + p)/2) * np.linalg.det(lmbda_) ** 0.5/\
+			  (gamma(nu/2) * nu ** (p/2) * np.pi ** (p/2) ) * \
+			  (1 + 1/nu * dist) ** (-(nu+p)/2)
+
+		return np.log(lik) if log else lik
+	else:
+		raise NotImplementedError
+
+
+def multi_variate_normal(x, mu, sigma=None, log=True, gmm=False, lmbda=None):
 	"""
 	Multivariatve normal distribution PDF
 
@@ -266,15 +306,23 @@ def multi_variate_normal(x, mu, sigma, log=True, gmm=False, lmbda=None):
 			sigma = np.array(sigma, ndmin=2)
 		if type(mu) is float:
 			mu = np.array(mu, ndmin=1)
-		sigma = sigma[None, None] if sigma.shape == () else sigma
+		if sigma is not None:
+			sigma = sigma[None, None] if sigma.shape == () else sigma
+
 		mu = mu[None] if mu.shape == () else mu
 		x = x[:, None] if x.ndim == 1 else x
 
 		dx = mu - x
 		lmbda_ = np.linalg.inv(sigma) if lmbda is None else lmbda
 
-		log_lik = -0.5 * np.einsum('...j,...j', dx, np.einsum('...jk,...j->...k', lmbda_, dx)) \
-			- 0.5 * np.log(np.linalg.det(2 * np.pi * sigma))
+		log_lik = -0.5 * np.einsum('...j,...j', dx, np.einsum('...jk,...j->...k', lmbda_, dx))
+
+		if sigma is not None:
+			log_lik -= 0.5 * np.log(np.linalg.det(2 * np.pi * sigma))
+		else:
+			log_lik += 0.5 * np.log(np.linalg.det(2 * np.pi * lmbda))
+
+
 		return log_lik if log else np.exp(log_lik)
 	else:
 		raise NotImplementedError

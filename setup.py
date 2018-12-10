@@ -41,5 +41,5 @@ setup(name='pbdlib',
       license='MIT',
       packages=find_packages(),
       data_files = dlist,
-      install_requires = {'numpy','scipy','matplotlib','sklearn', 'dtw', 'jupyter', 'enum', 'termcolor'},
+      install_requires = ['numpy','scipy','matplotlib','sklearn', 'dtw', 'jupyter', 'enum', 'termcolor'],
       zip_safe=False)

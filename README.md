@@ -20,8 +20,8 @@ This requires v2.7 of Python.
 
 Following these instructions install the library without copying the files, allowing to edit the sources files without reinstalling.
 
-    git clone git@gitlab.idiap.ch:epignat/pbdlib.git
-    cd pbdlib
+    git clone https://gitlab.idiap.ch/rli/pbdlib-python.git
+    cd pbdlib-python
     pip install -e .
 
 If pip is not install, you can get it that way:
@@ -42,3 +42,22 @@ Then navigate through folders and click on desired notebook.
 | pbdlib - lqr.ipynb| Linear quadratic regulator to regerate trajectories.|
 | pbdlib - Multiple coordinate systems.ipynb| This example shows how motions can adapt to various positions and orientations of objects by projecting the demonstrations in several coordinate systems.|
 
+## User interface for recording data with the mouse
+
+### Installation
+
+    sudo apt-get intall python-tk
+
+### Use
+
+    cd notebooks
+    python record_demo.py -p /path/to/folder -f filename
+
+You can click on move the mouse on the left panel to record demonstrations. Press "h" for help. Save with "q".
+
+To record demos with additional moving objects, run
+
+    python record_demo.py -p /path/to/folder -f filename -m -c number_of_object
+
+By pressing, the number corresponding to the desired object on your keyboard, you will make it appear and be able to move it.
+Rotate them by holding the key of the number and turning the scrollwheel of your mouse.

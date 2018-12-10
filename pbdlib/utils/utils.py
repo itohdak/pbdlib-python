@@ -9,6 +9,7 @@ from scipy.special import factorial
 
 plt.style.use('ggplot')
 
+import scipy.sparse as ss
 
 def get_canonical(nb_dim, nb_deriv=2, dt=0.01):
 	A1d = np.zeros((nb_deriv, nb_deriv))
@@ -58,7 +59,7 @@ def lifted_noise_matrix(A=None, B=None, nb_dim=3, dt=0.01, horizon=50):
 	return s_v
 
 
-def lifted_transfer_matrix(A=None, B=None, nb_dim=3, dt=0.01, horizon=50):
+def lifted_transfer_matrix(A=None, B=None, nb_dim=3, dt=0.01, horizon=50, sparse=False):
 	r"""
 	Given a linear system
 
@@ -91,7 +92,10 @@ def lifted_transfer_matrix(A=None, B=None, nb_dim=3, dt=0.01, horizon=50):
 			s_u[i * B.shape[0]:(i + 1) * B.shape[0], j * B.shape[1]:(j + 1) * B.shape[1]] = \
 			At_b_tmp[i - j - 1]
 
-	return s_xi, s_u
+	if sparse:
+		return ss.csc_matrix(s_xi), ss.csc_matrix(s_u)
+	else:
+		return s_xi, s_u
 
 
 def gu_pinv(A, rcond=1e-15):

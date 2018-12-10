@@ -16,6 +16,24 @@ class GMM(Model):
 		if init_zeros:
 			self.init_zeros()
 
+	def get_matching_mvn(self, max=False, mass=None):
+		if max:
+			priors = (self.priors == np.max(self.priors)).astype(np.float32)
+			priors /= np.sum(priors)
+		elif mass is not None:
+			prior_lim = np.sort(self.priors)[::-1][np.max(
+				[0, np.argmin(np.cumsum(np.sort(self.priors)[::-1]) < mass)])]
+
+			priors = (self.priors >= prior_lim) * self.priors
+			priors /= np.sum(priors)
+		else:
+			priors = self.priors
+		# print priors, self.priors
+
+		mus, sigmas = self.moment_matching(priors)
+		mvn = MVN(nb_dim=self.nb_dim, mu=mus[0], sigma=sigmas[0])
+
+		return mvn
 
 	def moment_matching(self, h):
 		"""
@@ -34,6 +52,18 @@ class GMM(Model):
 
 		return mus, sigmas
 
+	def __add__(self, other):
+		if isinstance(other, MVN):
+			gmm = GMM(nb_dim=self.nb_dim, nb_states=self.nb_states)
+
+			gmm.priors = self.priors
+			gmm.mu = self.mu + other.mu[None]
+			gmm.sigma = self.sigma + other.sigma[None]
+
+			return gmm
+
+		else:
+			raise NotImplementedError
 
 	def __mul__(self, other):
 		"""
@@ -42,14 +72,36 @@ class GMM(Model):
 		:param other:
 		:return:
 		"""
-		gmm = GMM(nb_dim=self.nb_dim, nb_states=self.nb_states)
-		gmm.priors = self.priors
-		gmm.mu = np.einsum('aij,aj->ai', self.lmbda, self.mu) + \
-				 np.einsum('aij,aj->ai', other.lmbda, other.mu)
+		if isinstance(other, MVN):
+			gmm = GMM(nb_dim=self.nb_dim, nb_states=self.nb_states)
+			gmm.mu = np.einsum('aij,aj->ai', self.lmbda, self.mu) + \
+					 np.einsum('ij,j->i', other.lmbda, other.mu)[None]
 
-		gmm.lmbda = self.lmbda + other.lmbda
+			gmm.lmbda = self.lmbda + other.lmbda[None]
+			gmm.mu = np.einsum('aij,aj->ai', gmm.sigma, gmm.mu)
 
-		gmm.mu = np.einsum('aij,aj->ai', gmm.sigma, gmm.mu)
+			Z = np.linalg.slogdet(self.lmbda)[1]\
+				+ np.linalg.slogdet(other.lmbda)[1] \
+				- 0.5 * np.linalg.slogdet(gmm.lmbda)[1] \
+				- self.nb_dim / 2. * np.log(2 * np.pi) \
+				+ 0.5 * (np.einsum('ai,aj->a',
+								   np.einsum('ai,aij->aj', gmm.mu, gmm.lmbda), gmm.mu)
+						-np.einsum('ai,aj->a',
+								   np.einsum('ai,aij->aj', self.mu, self.lmbda), self.mu)
+						-np.sum(np.einsum('i,ij->j', other.mu, other.lmbda) * other.mu)
+						 )
+			gmm.priors = np.exp(Z) * self.priors
+			gmm.priors /= np.sum(gmm.priors)
+
+		else:
+			gmm = GMM(nb_dim=self.nb_dim, nb_states=self.nb_states)
+			gmm.priors = self.priors
+			gmm.mu = np.einsum('aij,aj->ai', self.lmbda, self.mu) + \
+					 np.einsum('aij,aj->ai', other.lmbda, other.mu)
+
+			gmm.lmbda = self.lmbda + other.lmbda
+
+			gmm.mu = np.einsum('aij,aj->ai', gmm.sigma, gmm.mu)
 
 		return gmm
 
@@ -119,7 +171,7 @@ class GMM(Model):
 
 
 
-	def compute_resp(self, demo=None, dep=None, table=None, marginal=None, ):
+	def compute_resp(self, demo=None, dep=None, table=None, marginal=None, norm=True):
 		sample_size = demo.shape[0]
 
 		B = np.ones((self.nb_states, sample_size))
@@ -142,15 +194,22 @@ class GMM(Model):
 						B[[i], :] *= multi_variate_normal(demo, mu[i, d],
 														  sigma[dGrid][:, :, 0], log=False)
 		B *= self.priors[:, None]
-		return B/np.sum(B, axis=0)
+		if norm:
+			return B/np.sum(B, axis=0)
+		else:
+			return B
 
-	def init_params_scikit(self, data):
+	def init_params_scikit(self, data, cov_type='full'):
 		from sklearn.mixture import BayesianGaussianMixture, GaussianMixture
-		gmm_init = GaussianMixture(self.nb_states, 'full', n_init=10, init_params='random')
+		gmm_init = GaussianMixture(self.nb_states, cov_type, n_init=5, init_params='random')
 		gmm_init.fit(data)
 
 		self.mu = gmm_init.means_
-		self.sigma = gmm_init.covariances_
+		if cov_type == 'diag':
+			self.sigma = np.array([np.diag(gmm_init.covariances_[i]) for i in range(self.nb_states)])
+		else:
+			self.sigma = gmm_init.covariances_
+
 		self.priors = gmm_init.weights_
 
 		self.Trans = np.ones((self.nb_states, self.nb_states)) * 0.01
@@ -183,7 +242,8 @@ class GMM(Model):
 		self.priors = np.ones(self.nb_states) / self.nb_states
 
 	def em(self, data, reg=1e-8, maxiter=100, minstepsize=1e-5, diag=False, reg_finish=False,
-		   kmeans_init=False, random_init=True, dep_mask=None, no_init=False):
+		   kmeans_init=False, random_init=True, dep_mask=None, verbose=False, only_scikit=False,
+		    no_init=False):
 		"""
 
 		:param data:	 		[np.array([nb_timesteps, nb_dim])]
@@ -212,15 +272,18 @@ class GMM(Model):
 
 		nb_samples = data.shape[0]
 
-
 		if not no_init:
-			if random_init:
+			if random_init and not only_scikit:
 				self.init_params_random(data)
-			elif kmeans_init:
+			elif kmeans_init and not only_scikit:
 				self.init_params_kmeans(data)
 			else:
-				self.init_params_scikit(data)
+				if diag:
+					self.init_params_scikit(data, 'diag')
+				else:
+					self.init_params_scikit(data, 'full')
 
+		if only_scikit: return
 		data = data.T
 
 		LL = np.zeros(nb_max_steps)
@@ -269,10 +332,11 @@ class GMM(Model):
 						self.sigma = np.einsum(
 							'acj,aic->aij', np.einsum('aic,ac->aci', dx, GAMMA2), dx) + reg_finish
 
-					print colored('Converged after %d iterations: %.3e' % (it, LL[it]), 'red', 'on_white')
+					if verbose:
+						print colored('Converged after %d iterations: %.3e' % (it, LL[it]), 'red', 'on_white')
 					return GAMMA
-
-		print "GMM did not converge before reaching max iteration. Consider augmenting the number of max iterations."
+		if verbose:
+			print "GMM did not converge before reaching max iteration. Consider augmenting the number of max iterations."
 		return GAMMA
 
 
