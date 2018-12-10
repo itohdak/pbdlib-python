@@ -4,11 +4,13 @@ import pbdlib as pbd
 import scipy.sparse as ss
 
 class LQR(object):
-	def __init__(self, A=None, B=None, dt=0.01, horizon=50):
+	def __init__(self, A=None, B=None, nb_dim=2, dt=0.01, horizon=50):
 		self._horizon = horizon
 		self.A = A
 		self.B = B
 		self.dt = dt
+
+		self.nb_dim = nb_dim
 
 		self._s_xi, self._s_u = None, None
 		self._x0 = None
@@ -17,6 +19,40 @@ class LQR(object):
 		self._mvn_sol_xi, self._mvn_sol_u = None, None
 
 		self._seq_xi, self._seq_u = None, None
+
+	@property
+	def horizon(self):
+		return self._horizon
+
+	@horizon.setter
+	def horizon(self, value):
+		self.reset_params()
+
+		self._horizon = value
+
+	@property
+	def u_dim(self):
+		"""
+		Number of dimension of input
+		:return:
+		"""
+		if self.B is not None:
+			return self.B.shape[1]
+		else:
+			return self.nb_dim
+
+	@property
+	def xi_dim(self):
+
+		"""
+		Number of dimension of state
+		:return:
+		"""
+		if self.A is not None:
+			return self.A.shape[0]
+		else:
+			return self.nb_dim * 2
+
 
 	@property
 	def gmm_xi(self):
@@ -29,7 +65,7 @@ class LQR(object):
 	@gmm_xi.setter
 	def gmm_xi(self, value):
 		"""
-		:param value 		[float] or [pbd.MVN]
+		:param value 		[pbd.GMM] or [(pbd.GMM, list)]
 		"""
 		# resetting solution
 		self._mvn_sol_xi = None
@@ -50,7 +86,7 @@ class LQR(object):
 	@gmm_u.setter
 	def gmm_u(self, value):
 		"""
-		:param value 		[float] or [pbd.MVN]
+		:param value 		[float] or [pbd.MVN] or [pbd.GMM] or [(pbd.GMM, list)]
 		"""
 		# resetting solution
 		self._mvn_sol_xi = None
@@ -58,14 +94,112 @@ class LQR(object):
 		self._seq_u = None
 		self._seq_xi = None
 
-		if isinstance(value, pbd.MVN):
-			self._gmm_u = value
-		else:
+		if isinstance(value, float):
 			self._gmm_u = pbd.MVN(
 				mu=np.zeros(self.u_dim), lmbda=10 ** value * np.eye(self.u_dim))
+		else:
+			self._gmm_u = value
 
+	@property
+	def x0(self):
+		return self._x0
 
-class PoGLQR(object):
+	@x0.setter
+	def x0(self, value):
+		# resetting solution
+		self._mvn_sol_xi = None
+		self._mvn_sol_u = None
+
+		self._x0 = value
+
+	def get_Q_z(self, t):
+		"""
+		get Q and target z for time t
+		:param t:
+		:return:
+		"""
+		if isinstance(self._gmm_xi, tuple):
+			gmm, seq = self._gmm_xi
+			return gmm.lmbda[seq[t]], gmm.mu[seq[t]]
+		elif isinstance(self._gmm_xi, pbd.GMM):
+			return self._gmm_xi.lmbda[t], self._gmm_xi.mu[t]
+		elif isinstance(self._gmm_xi, pbd.MVN):
+			return self._gmm_xi.lmbda, self._gmm_xi.mu
+		else:
+			raise ValueError, "Not supported gmm_xi"
+
+	def get_R(self, t):
+		if isinstance(self._gmm_u, pbd.MVN):
+			return self._gmm_u.lmbda
+		elif isinstance(self._gmm_u, tuple):
+			gmm, seq = self._gmm_u
+			return gmm.lmbda[seq[t]], gmm.mu[seq[t]]
+		elif isinstance(self._gmm_u, pbd.GMM):
+			return self._gmm_u.lmbda[t], self._gmm_u.mu[t]
+		else:
+			raise ValueError, "Not supported gmm_u"
+
+	def ricatti(self):
+		"""
+		http://web.mst.edu/~bohner/papers/tlqtots.pdf
+		:return:
+		"""
+
+		Q, z = self.get_Q_z(-1)
+		#
+		_S = [None for i in range(self._horizon)]
+		_v = [None for i in range(self._horizon)]
+		_K = [None for i in range(self._horizon-1)]
+		_Kv = [None for i in range(self._horizon-1)]
+
+		# _S = np.empty((self._horizon, self.xi_dim, self.xi_dim))
+		# _v = np.empty((self._horizon, self.xi_dim))
+		# _K = np.empty((self._horizon-1, self.u_dim, self.xi_dim))
+		# _Kv = np.empty((self._horizon-1, self.u_dim, self.xi_dim))
+
+		_S[-1] = Q
+		_v[-1] = Q.dot(z)
+
+		for t in range(self.horizon-2, -1, -1):
+			Q, z = self.get_Q_z(t)
+			R = self.get_R(t)
+
+			_Kv[t] = np.linalg.inv(R + self.B.T.dot(_S[t+1]).dot(self.B)).dot(self.B.T)
+			_K[t] = _Kv[t].dot(_S[t+1]).dot(self.A)
+
+			AmBK = self.A - self.B.dot(_K[t])
+
+			_S[t] = self.A.T.dot(_S[t+1]).dot(AmBK) + Q
+			_v[t] = AmBK.T.dot(_v[t+1]) + Q.dot(z)
+
+		self._S = _S
+		self._v = _v
+		self._K = _K
+		self._Kv = _Kv
+
+	def get_seq(self, xi0, return_target=False):
+		xis = [xi0]
+		us = [-self._K[0].dot(xi0) + self._Kv[0].dot(self._v[0])]
+
+		ds = []
+
+		for t in range(1, self.horizon-1):
+			xis += [self.A.dot(xis[-1]) + self.B.dot(us[-1])]
+
+			if return_target:
+				d = np.linalg.inv(self._S[t].dot(self.A)).dot(self._v[t])
+				ds += [d]
+
+				us += [self._K[t].dot(d-xis[-1])]
+			else:
+				us += [-self._K[t].dot(xis[-1]) + self._Kv[t].dot(self._v[t+1])]
+
+		if return_target:
+			return np.array(xis), np.array(us), np.array(ds)
+		else:
+			return np.array(xis), np.array(us)
+
+class PoGLQR(LQR):
 	"""
 	Implementation of LQR with Product of Gaussian as described in
 
@@ -129,28 +263,6 @@ class PoGLQR(object):
 		else:
 			return self.nb_dim * self.horizon * 2
 
-	@property
-	def u_dim(self):
-		"""
-		Number of dimension of input
-		:return:
-		"""
-		if self.B is not None:
-			return self.B.shape[1]
-		else:
-			return self.nb_dim
-
-	@property
-	def xi_dim(self):
-
-		"""
-		Number of dimension of state
-		:return:
-		"""
-		if self.A is not None:
-			return self.A.shape[0]
-		else:
-			return self.nb_di * 2
 
 	@property
 	def mvn_sol_u(self):
@@ -241,18 +353,6 @@ class PoGLQR(object):
 			self._mvn_u = pbd.MVN(
 				mu=np.zeros(self.mvn_u_dim), lmbda=10 ** value * np.eye(self.mvn_u_dim))
 
-	@property
-	def x0(self):
-		return self._x0
-
-	@x0.setter
-	def x0(self, value):
-		# resetting solution
-		self._mvn_sol_xi = None
-		self._mvn_sol_u = None
-
-		self._x0 = value
-
 
 	@property
 	def xis(self):
@@ -286,17 +386,6 @@ class PoGLQR(object):
 		# self._mvn_xi, self._mvn_u = None, None
 		self._mvn_sol_xi, self._mvn_sol_u = None, None
 		self._seq_xi, self._seq_u = None, None
-
-	@property
-	def horizon(self):
-		return self._horizon
-
-	@horizon.setter
-	def horizon(self, value):
-		self.reset_params()
-
-
-		self._horizon = value
 
 
 class SparsePoGLQR(PoGLQR):
