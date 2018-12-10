@@ -3,6 +3,68 @@ from utils.utils import lifted_transfer_matrix
 import pbdlib as pbd
 import scipy.sparse as ss
 
+class LQR(object):
+	def __init__(self, A=None, B=None, dt=0.01, horizon=50):
+		self._horizon = horizon
+		self.A = A
+		self.B = B
+		self.dt = dt
+
+		self._s_xi, self._s_u = None, None
+		self._x0 = None
+
+		self._gmm_xi, self._gmm_u = None, None
+		self._mvn_sol_xi, self._mvn_sol_u = None, None
+
+		self._seq_xi, self._seq_u = None, None
+
+	@property
+	def gmm_xi(self):
+		"""
+		Distribution of state
+		:return:
+		"""
+		return self._gmm_xi
+
+	@gmm_xi.setter
+	def gmm_xi(self, value):
+		"""
+		:param value 		[float] or [pbd.MVN]
+		"""
+		# resetting solution
+		self._mvn_sol_xi = None
+		self._mvn_sol_u = None
+		self._seq_u = None
+		self._seq_xi = None
+
+		self._gmm_xi = value
+
+	@property
+	def gmm_u(self):
+		"""
+		Distribution of control input
+		:return:
+		"""
+		return self._gmm_u
+
+	@gmm_u.setter
+	def gmm_u(self, value):
+		"""
+		:param value 		[float] or [pbd.MVN]
+		"""
+		# resetting solution
+		self._mvn_sol_xi = None
+		self._mvn_sol_u = None
+		self._seq_u = None
+		self._seq_xi = None
+
+		if isinstance(value, pbd.MVN):
+			self._gmm_u = value
+		else:
+			self._gmm_u = pbd.MVN(
+				mu=np.zeros(self.u_dim), lmbda=10 ** value * np.eye(self.u_dim))
+
+
 class PoGLQR(object):
 	"""
 	Implementation of LQR with Product of Gaussian as described in
