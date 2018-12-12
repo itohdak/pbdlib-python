@@ -8,7 +8,7 @@ from .model import Model
 from .mvn import *
 from .plot import *
 from .pylqr import *
-from .poglqr import PoGLQR, SparsePoGLQR, LQR
+from .poglqr import PoGLQR, LQR
 from .mtmm import MTMM, VBayesianGMM, VMBayesianGMM
 
 try:
