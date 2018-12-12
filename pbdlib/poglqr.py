@@ -132,9 +132,9 @@ class LQR(object):
 			return self._gmm_u.lmbda
 		elif isinstance(self._gmm_u, tuple):
 			gmm, seq = self._gmm_u
-			return gmm.lmbda[seq[t]], gmm.mu[seq[t]]
+			return gmm.lmbda[seq[t]]
 		elif isinstance(self._gmm_u, pbd.GMM):
-			return self._gmm_u.lmbda[t], self._gmm_u.mu[t]
+			return self._gmm_u.lmbda[t]
 		else:
 			raise ValueError, "Not supported gmm_u"
 
@@ -175,6 +175,14 @@ class LQR(object):
 		self._v = _v
 		self._K = _K
 		self._Kv = _Kv
+
+	def get_target(self):
+		ds = []
+
+		for t in range(0, self.horizon-1):
+			ds += [np.linalg.inv(self._S[t].dot(self.A)).dot(self._v[t])]
+
+		return np.array(ds)
 
 	def get_seq(self, xi0, return_target=False):
 		xis = [xi0]
@@ -262,6 +270,7 @@ class PoGLQR(LQR):
 		else:
 			return self.nb_dim * self.horizon * 2
 
+
 	@property
 	def mvn_sol_u(self):
 		"""
@@ -281,14 +290,14 @@ class PoGLQR(LQR):
 	@property
 	def seq_xi(self):
 		if self._seq_xi is None:
-			self._seq_xi =  self.mvn_sol_xi.mu.reshape(self.horizon, self.nb_dim * 2)
+			self._seq_xi =  self.mvn_sol_xi.mu.reshape(self.horizon, self.xi_dim)
 
 		return self._seq_xi
 
 	@property
 	def seq_u(self):
 		if self._seq_u is None:
-			self._seq_u = self.mvn_sol_u.mu.reshape(self.horizon, self.nb_dim)
+			self._seq_u = self.mvn_sol_u.mu.reshape(self.horizon, self.u_dim)
 
 		return self._seq_u
 
