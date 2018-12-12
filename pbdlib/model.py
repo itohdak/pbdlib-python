@@ -35,6 +35,28 @@ class Model(object):
 	def has_init_state(self):
 		return self._has_init_state
 
+	def regularize(self, reg):
+		"""
+
+		:param reg: is as
+			float: isotopric std deviation
+			np.array() rank 1: std deviation diagonal
+			np.array() rank 2: covariance matrix
+
+		:return:
+		"""
+		new_model = Model(nb_states=self.nb_states, nb_dim=self.nb_dim)
+		new_model.mu = self.mu
+
+		if isinstance(reg, float):
+			new_model.sigma = self.sigma + np.eye(self.sigma.shape[-1])[None] * reg ** 2
+		elif isinstance(reg, np.ndarray) and reg.ndim == 1:
+			new_model.sigma = self.sigma + np.diag(reg**2)[None]
+		else:
+			new_model.sigma = self.sigma + reg[None]
+
+		return new_model
+
 	@property
 	def reg(self):
 		"""
