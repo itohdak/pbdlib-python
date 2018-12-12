@@ -1,7 +1,6 @@
 import numpy as np
 from utils.utils import lifted_transfer_matrix
 import pbdlib as pbd
-import scipy.sparse as ss
 
 class LQR(object):
 	def __init__(self, A=None, B=None, nb_dim=2, dt=0.01, horizon=50):
@@ -133,9 +132,9 @@ class LQR(object):
 			return self._gmm_u.lmbda
 		elif isinstance(self._gmm_u, tuple):
 			gmm, seq = self._gmm_u
-			return gmm.lmbda[seq[t]]
+			return gmm.lmbda[seq[t]], gmm.mu[seq[t]]
 		elif isinstance(self._gmm_u, pbd.GMM):
-			return self._gmm_u.lmbda[t]
+			return self._gmm_u.lmbda[t], self._gmm_u.mu[t]
 		else:
 			raise ValueError, "Not supported gmm_u"
 
@@ -177,14 +176,6 @@ class LQR(object):
 		self._K = _K
 		self._Kv = _Kv
 
-	def get_target(self):
-		ds = []
-
-		for t in range(0, self.horizon-1):
-			ds += [np.linalg.inv(self._S[t].dot(self.A)).dot(self._v[t])]
-
-		return np.array(ds)
-
 	def get_seq(self, xi0, return_target=False):
 		xis = [xi0]
 		us = [-self._K[0].dot(xi0) + self._Kv[0].dot(self._v[0])]
@@ -221,7 +212,7 @@ class PoGLQR(LQR):
 		self.B = B
 		self.nb_dim = nb_dim
 		self.dt = dt
-		
+
 		self._s_xi, self._s_u = None, None
 		self._x0 = None
 
@@ -271,7 +262,6 @@ class PoGLQR(LQR):
 		else:
 			return self.nb_dim * self.horizon * 2
 
-
 	@property
 	def mvn_sol_u(self):
 		"""
@@ -291,14 +281,14 @@ class PoGLQR(LQR):
 	@property
 	def seq_xi(self):
 		if self._seq_xi is None:
-			self._seq_xi =  self.mvn_sol_xi.mu.reshape(self.horizon, self.xi_dim)
+			self._seq_xi =  self.mvn_sol_xi.mu.reshape(self.horizon, self.nb_dim * 2)
 
 		return self._seq_xi
 
 	@property
 	def seq_u(self):
 		if self._seq_u is None:
-			self._seq_u = self.mvn_sol_u.mu.reshape(self.horizon, self.u_dim)
+			self._seq_u = self.mvn_sol_u.mu.reshape(self.horizon, self.nb_dim)
 
 		return self._seq_u
 
@@ -395,42 +385,13 @@ class PoGLQR(LQR):
 		self._mvn_sol_xi, self._mvn_sol_u = None, None
 		self._seq_xi, self._seq_u = None, None
 
-
-class SparsePoGLQR(PoGLQR):
 	@property
-	def mvn_u(self):
-		"""
-		Distribution of control input
-		:return:
-		"""
-		return self._mvn_u
-	@mvn_u.setter
-	def mvn_u(self, value):
-		"""
-		:param value 		[float] or [pbd.MVN]
-		"""
-		# resetting solution
-		self._mvn_sol_xi = None
-		self._mvn_sol_u = None
-		self._seq_u = None
-		self._seq_xi = None
+	def horizon(self):
+		return self._horizon
 
-		if isinstance(value, pbd.MVN):
-			self._mvn_u = value
-		else:
-			self._mvn_u = pbd.SparseMVN(
-				mu=np.zeros(self.u_dim), lmbda=10 ** value * ss.eye(self.u_dim))
+	@horizon.setter
+	def horizon(self, value):
+		self.reset_params()
 
-	@property
-	def s_u(self):
-		if self._s_u is None:
-			self._s_xi, self._s_u = lifted_transfer_matrix(self.A, self.B,
-				horizon=self.horizon, dt=self.dt, nb_dim=self.nb_dim, sparse=True)
-		return self._s_u
-	@property
-	def s_xi(self):
-		if self._s_xi is None:
-			self._s_xi, self._s_u = lifted_transfer_matrix(self.A, self.B,
-				horizon=self.horizon, dt=self.dt, nb_dim=self.nb_dim, sparse=True)
 
-		return self._s_xi
+		self._horizon = value
