@@ -20,7 +20,7 @@ This requires v2.7 of Python.
 
 Following these instructions install the library without copying the files, allowing to edit the sources files without reinstalling.
 
-    git clone git@gitlab.idiap.ch:epignat/pbdlib-python.git
+    git clone https://gitlab.idiap.ch/rli/pbdlib-python.git
     cd pbdlib-python
     pip install -e .
 
@@ -44,6 +44,12 @@ Then navigate through folders and click on desired notebook.
 
 ## User interface for recording data with the mouse
 
+### Installation
+
+    sudo apt-get intall python-tk
+
+### Use
+
     cd notebooks
     python record_demo.py -p /path/to/folder -f filename
 
@@ -55,6 +61,3 @@ To record demos with additional moving objects, run
 
 By pressing, the number corresponding to the desired object on your keyboard, you will make it appear and be able to move it.
 Rotate them by holding the key of the number and turning the scrollwheel of your mouse.
-
-
-

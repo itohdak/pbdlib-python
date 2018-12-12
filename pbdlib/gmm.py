@@ -2,9 +2,9 @@ import numpy as np
 from model import *
 from functions import multi_variate_normal
 from scipy.linalg import block_diag
-import scipy.sparse as ss
+
 from termcolor import colored
-from mvn import MVN, SparseMVN
+from mvn import MVN
 
 
 class GMM(Model):
@@ -136,7 +136,7 @@ class GMM(Model):
 
 		return gmm
 
-	def concatenate_gaussian(self, q, get_mvn=True, sparse=False):
+	def concatenate_gaussian(self, q, get_mvn=True, reg=None):
 		"""
 		Get a concatenated-block-diagonal replication of the GMM with sequence of state
 		given by q.
@@ -147,21 +147,29 @@ class GMM(Model):
 
 		:return:
 		"""
-		if not get_mvn:
-			return np.concatenate([self.mu[i] for i in q]), block_diag(*[self.sigma[i] for i in q])
-		else:
-			if not sparse:
+		if reg is None:
+			if not get_mvn:
+				return np.concatenate([self.mu[i] for i in q]), block_diag(*[self.sigma[i] for i in q])
+			else:
 				mvn = MVN()
 				mvn.mu = np.concatenate([self.mu[i] for i in q])
 				mvn._sigma = block_diag(*[self.sigma[i] for i in q])
 				mvn._lmbda = block_diag(*[self.lmbda[i] for i in q])
-			else:
-				mvn = SparseMVN()
 
+				return mvn
+		else:
+			if not get_mvn:
+				return np.concatenate([self.mu[i] for i in q]), block_diag(
+					*[self.sigma[i] + reg for i in q])
+			else:
+				mvn = MVN()
 				mvn.mu = np.concatenate([self.mu[i] for i in q])
-				mvn._sigma = ss.block_diag([self.sigma[i] for i in q])
-				mvn._lmbda = ss.block_diag([self.lmbda[i] for i in q])
-			return mvn
+				mvn._sigma = block_diag(*[self.sigma[i] + reg for i in q])
+				mvn._lmbda = block_diag(*[np.linalg.inv(self.sigma[i] + reg) for i in q])
+
+				return mvn
+
+
 
 	def compute_resp(self, demo=None, dep=None, table=None, marginal=None, norm=True):
 		sample_size = demo.shape[0]
