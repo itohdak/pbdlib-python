@@ -206,7 +206,7 @@ class VBayesianGMM(MTMM):
 			_gmm.priors = self.priors
 			self._posterior_samples += [_gmm]
 
-	def posterior(self, data, dims=slice(0, 7), mean_scale=10., cov=None, dp=True):
+	def posterior(self, data, mean_scale=10., cov=None, dp=True):
 
 		self.nb_dim = data.shape[1]
 
@@ -243,6 +243,21 @@ class VBayesianGMM(MTMM):
 			self.nb_states = states.shape[0] + 1
 
 	def condition(self, *args, **kwargs):
+		"""
+		[1] M. Hofert, 'On the Multivariate t Distribution,' R J., vol. 5, pp. 129-136, 2013.
+
+		Conditional probabilities in a Joint Multivariate t Distribution Mixture Model
+
+		:param data_in:		[np.array([nb_data, nb_dim])
+				Observed datapoints x_in
+		:param dim_in:		[slice] or [list of index]
+				Dimension of input space e.g.: slice(0, 3), [0, 2, 3]
+		:param dim_out:		[slice] or [list of index]
+				Dimension of output space e.g.: slice(3, 6), [1, 4]
+		:param h:			optional - [np.array([nb_states, nb_data])]
+				Overrides marginal probability of states given input dimensions
+		:return:
+		"""
 		if not kwargs.get('samples', False):
 			return MTMM.condition(self, *args, **kwargs)
 		kwargs.pop('samples')
