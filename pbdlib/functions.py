@@ -262,7 +262,7 @@ def multi_variate_t(x, nu, mu, sigma=None, log=True, gmm=False, lmbda=None):
 	:param log: 	bool
 	:return:
 	"""
-	from scipy.special import gamma
+	from scipy.special import gamma, gammaln
 	if not gmm:
 		if type(sigma) is float:
 			sigma = np.array(sigma, ndmin=2)
@@ -288,8 +288,8 @@ def multi_variate_t(x, nu, mu, sigma=None, log=True, gmm=False, lmbda=None):
 				  (1 + 1/nu * dist) ** (-(nu+p)/2)
 			return lik
 		else:
-			log_lik = np.log(gamma((nu + p)/2)) + 0.5 * np.linalg.slogdet(lmbda_)[1] - \
-					  (np.log(gamma(nu / 2)) + (p / 2) * np.log(nu)  + (p / 2) * np.log(np.pi)) + \
+			log_lik = gammaln((nu + p)/2) + 0.5 * np.linalg.slogdet(lmbda_)[1] - \
+					  (gammaln(nu / 2) + (p / 2) * np.log(nu)  + (p / 2) * np.log(np.pi)) + \
 					  ((-(nu + p) / 2) * np.log(1 + 1 / nu * dist))
 
 			return log_lik
