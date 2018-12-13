@@ -262,7 +262,7 @@ def multi_variate_t(x, nu, mu, sigma=None, log=True, gmm=False, lmbda=None):
 	:param log: 	bool
 	:return:
 	"""
-	from scipy.special import gamma
+	from scipy.special import gamma, gammaln
 	if not gmm:
 		if type(sigma) is float:
 			sigma = np.array(sigma, ndmin=2)
@@ -282,11 +282,17 @@ def multi_variate_t(x, nu, mu, sigma=None, log=True, gmm=False, lmbda=None):
 		dist = np.einsum('...j,...j', dx, np.einsum('...jk,...j->...k', lmbda_, dx))
 		# (nb_timestep, )
 
-		lik = gamma((nu + p)/2) * np.linalg.det(lmbda_) ** 0.5/\
-			  (gamma(nu/2) * nu ** (p/2) * np.pi ** (p/2) ) * \
-			  (1 + 1/nu * dist) ** (-(nu+p)/2)
+		if not log:
+			lik = gamma((nu + p)/2) * np.linalg.det(lmbda_) ** 0.5/\
+				  (gamma(nu/2) * nu ** (p/2) * np.pi ** (p/2) ) * \
+				  (1 + 1/nu * dist) ** (-(nu+p)/2)
+			return lik
+		else:
+			log_lik = gammaln((nu + p)/2) + 0.5 * np.linalg.slogdet(lmbda_)[1] - \
+					  (gammaln(nu / 2) + (p / 2) * np.log(nu)  + (p / 2) * np.log(np.pi)) + \
+					  ((-(nu + p) / 2) * np.log(1 + 1 / nu * dist))
 
-		return np.log(lik) if log else lik
+			return log_lik
 	else:
 		raise NotImplementedError
 
@@ -318,9 +324,9 @@ def multi_variate_normal(x, mu, sigma=None, log=True, gmm=False, lmbda=None):
 		log_lik = -0.5 * np.einsum('...j,...j', dx, np.einsum('...jk,...j->...k', lmbda_, dx))
 
 		if sigma is not None:
-			log_lik -= 0.5 * np.log(np.linalg.det(2 * np.pi * sigma))
+			log_lik -= 0.5 * (x.shape[1] * np.log(2 * np.pi) + np.linalg.slogdet(sigma)[1])
 		else:
-			log_lik += 0.5 * np.log(np.linalg.det(2 * np.pi * lmbda))
+			log_lik += 0.5 * np.linalg.slogdet(2 * np.pi * lmbda)[1]
 
 
 		return log_lik if log else np.exp(log_lik)
