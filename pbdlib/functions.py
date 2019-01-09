@@ -289,8 +289,8 @@ def multi_variate_t(x, nu, mu, sigma=None, log=True, gmm=False, lmbda=None):
 			return lik
 		else:
 			log_lik = gammaln((nu + p)/2) + 0.5 * np.linalg.slogdet(lmbda_)[1] - \
-					  (gammaln(nu / 2) + (p / 2) * np.log(nu)  + (p / 2) * np.log(np.pi)) + \
-					  ((-(nu + p) / 2) * np.log(1 + 1 / nu * dist))
+				gammaln(nu/2) - p/2. * (np.log(nu) + np.log(np.pi)) +\
+					  ((-(nu + p) / 2) * np.log(1 + dist / nu))
 
 			return log_lik
 	else:
@@ -326,7 +326,7 @@ def multi_variate_normal(x, mu, sigma=None, log=True, gmm=False, lmbda=None):
 		if sigma is not None:
 			log_lik -= 0.5 * (x.shape[1] * np.log(2 * np.pi) + np.linalg.slogdet(sigma)[1])
 		else:
-			log_lik += 0.5 * np.linalg.slogdet(2 * np.pi * lmbda)[1]
+			log_lik -= 0.5 * (x.shape[1] * np.log(2 * np.pi) - np.linalg.slogdet(lmbda)[1])
 
 
 		return log_lik if log else np.exp(log_lik)
