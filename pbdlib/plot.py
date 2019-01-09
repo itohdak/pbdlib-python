@@ -269,7 +269,7 @@ def plot_linear_system(K, b=None, name=None, nb_sub=10, ax0=None, xlim=[-1, 1], 
 		return [strm]
 
 
-def plot_function_map(f, nb_sub=10, ax0=None, xlim=[-1, 1], ylim=[-1, 1], opp=False):
+def plot_function_map(f, nb_sub=10, ax=None, xlim=[-1, 1], ylim=[-1, 1], opp=False, exp=False):
 	"""
 
 	:param f:			[function]
@@ -290,13 +290,17 @@ def plot_function_map(f, nb_sub=10, ax0=None, xlim=[-1, 1], ylim=[-1, 1], opp=Fa
 		zz = f(mesh_data)
 	except: # if function cannot take a vector as input
 		zz = np.array([f(_x) for _x in mesh_data])
+
 	z = zz.reshape(xx.shape)
 
+	if ax is None:
+		ax = plt
 
-	CS = plt.contour(xx, yy, z, cmap='viridis')
-	plt.clabel(CS, inline=1, fontsize=10)
+	CS = ax.contour(xx, yy, z, cmap='viridis')
+	ax.clabel(CS, inline=1, fontsize=10)
 	if opp: z = -z
-	plt.imshow(np.exp(z), interpolation='bilinear', origin='lower', extent=xlim + ylim,
+	if exp: z = np.exp(z)
+	ax.imshow(z, interpolation='bilinear', origin='lower', extent=xlim + ylim,
 			   alpha=0.5, cmap='viridis')
 
 def plot_mixture_linear_system(model, mode='glob', nb_sub=20, gmm=True, min_alpha=0.,
