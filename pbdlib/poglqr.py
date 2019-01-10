@@ -20,6 +20,28 @@ class LQR(object):
 
 		self._seq_xi, self._seq_u = None, None
 
+		self._S, self._v, self._K, self._Kv, self._ds, self._Q = \
+			None, None, None, None, None, None
+
+	@property
+	def K(self):
+		assert self._K is not None, "Solve Ricatti before"
+
+		return self._K
+
+	@property
+	def Q(self):
+		assert self._Q is not None, "Solve Ricatti before"
+
+		return self._Q
+
+	@property
+	def ds(self):
+		if self._ds is None:
+			self._ds = self.get_target()
+
+		return self._ds
+
 	@property
 	def horizon(self):
 		return self._horizon
@@ -133,9 +155,9 @@ class LQR(object):
 			return self._gmm_u.lmbda
 		elif isinstance(self._gmm_u, tuple):
 			gmm, seq = self._gmm_u
-			return gmm.lmbda[seq[t]], gmm.mu[seq[t]]
+			return gmm.lmbda[seq[t]]
 		elif isinstance(self._gmm_u, pbd.GMM):
-			return self._gmm_u.lmbda[t], self._gmm_u.mu[t]
+			return self._gmm_u.lmbda[t]
 		else:
 			raise ValueError, "Not supported gmm_u"
 
@@ -151,7 +173,7 @@ class LQR(object):
 		_v = [None for i in range(self._horizon)]
 		_K = [None for i in range(self._horizon-1)]
 		_Kv = [None for i in range(self._horizon-1)]
-
+		_Q = [None for i in range(self._horizon-1)]
 		# _S = np.empty((self._horizon, self.xi_dim, self.xi_dim))
 		# _v = np.empty((self._horizon, self.xi_dim))
 		# _K = np.empty((self._horizon-1, self.u_dim, self.xi_dim))
@@ -164,7 +186,8 @@ class LQR(object):
 			Q, z = self.get_Q_z(t)
 			R = self.get_R(t)
 
-			_Kv[t] = np.linalg.inv(R + self.B.T.dot(_S[t+1]).dot(self.B)).dot(self.B.T)
+			_Q[t] = np.linalg.inv(R + self.B.T.dot(_S[t+1]).dot(self.B))
+			_Kv[t] = _Q[t].dot(self.B.T)
 			_K[t] = _Kv[t].dot(_S[t+1]).dot(self.A)
 
 			AmBK = self.A - self.B.dot(_K[t])
@@ -176,6 +199,17 @@ class LQR(object):
 		self._v = _v
 		self._K = _K
 		self._Kv = _Kv
+		self._Q = _Q
+
+		self._ds = None
+
+	def get_target(self):
+		ds = []
+
+		for t in range(0, self.horizon-1):
+			ds += [np.linalg.inv(self._S[t].dot(self.A)).dot(self._v[t])]
+
+		return np.array(ds)
 
 	def get_seq(self, xi0, return_target=False):
 		xis = [xi0]
