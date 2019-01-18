@@ -103,10 +103,15 @@ class MTMM(GMM):
 
 		return gmm_out
 
-	# @profile
 	def log_prob_components(self, x):
 		dx = self.mu[:, None] - x[None]  # [nb_states, nb_samples, nb_dim]
-		s = np.sum(np.einsum('kij,kai->kaj', self.lmbda, dx) * dx, axis=2) # [nb_states, nb_samples]
+
+		# slower
+		# s = np.sum(np.einsum('kij,kai->kaj', self.lmbda, dx) * dx, axis=2) # [nb_states, nb_samples]
+
+		# faster
+		s = np.sum(np.matmul(self.lmbda[:, None], dx[:, :, :, None])[:, :, :, 0] * dx, axis=2) # [nb_states, nb_samples]
+
 		log_norm = self.log_normalization[:, None]
 		return log_norm + (-(self.nu + self.nb_dim) / 2)[:, None] * np.log(1 + s/ self.nu[:, None])
 
@@ -208,14 +213,18 @@ class MTMM(GMM):
 
 			# [nb_states, nb_sample, nb_dim]
 			dx = data_in[None] - mu_in[:, None]
-			mu_est = mu_out[:, None] + np.einsum('aij,abj->abi', inv_sigma_out_in, dx)
 
-			s = np.sum(np.einsum('kij,kai->kaj',inv_sigma_in_in, dx) * dx, axis=2)
+			# mu_est = mu_out[:, None] + np.einsum('aij,abj->abi', inv_sigma_out_in, dx)
+			mu_est = mu_out[:, None] + np.matmul(inv_sigma_out_in[:, None], dx[:, :, :, None])[:, :, :, 0]
+
+			s = np.sum(np.matmul(inv_sigma_in_in[:, None], dx[:, :, :, None])[:, :, :, 0] * dx,
+					   axis=2)
+			# s = np.sum(np.einsum('kij,kai->kaj',inv_sigma_in_in, dx) * dx, axis=2)
 
 			a = (self.nu[:, None] + s) / (self.nu[:, None] + mu_in.shape[1])
 
-			sigma_est = a[:, :, None, None] * (sigma_out - np.einsum(
-				'aij,ajk->aik', inv_sigma_out_in, sigma_in_out))[:, None]
+			# sigma_est = a[:, :, None, None] * (sigma_out - np.einsum('aij,ajk->aik', inv_sigma_out_in, sigma_in_out))[:, None]
+			sigma_est = a[:, :, None, None] * (sigma_out - np.matmul(inv_sigma_out_in, sigma_in_out))[:, None]
 
 		nu = self.nu + mu_in.shape[1]
 		# the conditional distribution is now a still a mixture
