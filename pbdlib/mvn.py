@@ -91,6 +91,9 @@ class MVN(object):
 		self._eta = None
 
 
+	def plot(self, *args, **kwargs):
+		pbd.plot_gaussian(self.mu, self.sigma, *args, **kwargs)
+
 	@property
 	def muT(self):
 		"""

@@ -27,6 +27,8 @@ class Model(object):
 		self._has_finish_state = False
 		self._has_init_state = False
 
+		self._log_normalization = None
+
 	@property
 	def has_finish_state(self):
 		return self._has_finish_state
@@ -148,6 +150,7 @@ class Model(object):
 		self._lmbda = None
 		self._sigma_chol = None
 		self._sigma = value
+		self._log_normalization = None
 
 	@property
 	def lmbda(self):
@@ -166,6 +169,7 @@ class Model(object):
 		self._sigma = None  # reset sigma
 		self._sigma_chol = None
 		self._lmbda = value
+		self._log_normalization = None
 
 	def get_dep_mask(self, deps):
 		mask = np.eye(self.nb_dim)
