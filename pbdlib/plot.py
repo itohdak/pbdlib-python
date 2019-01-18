@@ -520,6 +520,10 @@ def plot_gmm(Mu, Sigma, dim=None, color=[1, 0, 0], alpha=0.5, linewidth=1, marke
 				l, = plt.plot(Mu[0, i], Mu[1, i], '.', color=c, alpha=a)  # Mean
 			else:
 				l, = plt.plot(Mu[i, 0], Mu[i, 1], '.', color=c, alpha=a)  # Mean
+
+			if border:
+				plt.plot(points[0, :], points[1, :], color=c, linewidth=linewidth,
+						markersize=markersize)  # Contour
 					# plt.plot(points[0,:], points[1,:], color=c, linewidth=linewidth , markersize=markersize) # Contour
 
 	return l

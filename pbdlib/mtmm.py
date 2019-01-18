@@ -163,7 +163,7 @@ class MTMM(GMM):
 			# apply moment matching to get a single MVN for each datapoint
 			return gaussian_moment_matching(mu_est, sigma_est * (nu/(nu-2.))[:, None, None, None], h.T)
 
-	def get_pred_post_uncertainty(self, data_in, dim_in, dim_out):
+	def get_pred_post_uncertainty(self, data_in, dim_in, dim_out, log=False):
 		"""
 		[1] M. Hofert, 'On the Multivariate t Distribution,' R J., vol. 5, pp. 129-136, 2013.
 
@@ -230,8 +230,10 @@ class MTMM(GMM):
 		_, _covs = gaussian_moment_matching(mu_est, sigma_est, h.T)
 
 		# return a
-		return np.linalg.det(_covs)
-
+		if log:
+			return np.linalg.slogdet(_covs)[1]
+		else:
+			return np.linalg.det(_covs)
 		# the conditional distribution is now a still a mixture
 
 
@@ -278,7 +280,7 @@ class VBayesianGMM(MTMM):
 			_gmm = GMM()
 
 			_gmm.lmbda = np.array(
-				[wishart.rvs(m.degrees_of_freedom_[i],
+				[wishart.rvs(m.degrees_of_freedom_[i] + 1.,
 							 np.linalg.inv(m.covariances_[i] * m.degrees_of_freedom_[i]))
 				 for i in range(nb_states)])
 
