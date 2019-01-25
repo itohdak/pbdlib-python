@@ -269,7 +269,7 @@ def plot_linear_system(K, b=None, name=None, nb_sub=10, ax0=None, xlim=[-1, 1], 
 		return [strm]
 
 
-def plot_function_map(f, nb_sub=10, ax=None, xlim=[-1, 1], ylim=[-1, 1], opp=False, exp=False):
+def plot_function_map(f, nb_sub=10, ax=None, xlim=[-1, 1], ylim=[-1, 1], opp=False, exp=False, vmin=None, vmax=None, contour=True):
 	"""
 
 	:param f:			[function]
@@ -296,12 +296,18 @@ def plot_function_map(f, nb_sub=10, ax=None, xlim=[-1, 1], ylim=[-1, 1], opp=Fal
 	if ax is None:
 		ax = plt
 
-	CS = ax.contour(xx, yy, z, cmap='viridis')
-	ax.clabel(CS, inline=1, fontsize=10)
+	if contour:
+		try:
+			CS = ax.contour(xx, yy, z, cmap='viridis')
+			ax.clabel(CS, inline=1, fontsize=10)
+		except:
+			pass
 	if opp: z = -z
 	if exp: z = np.exp(z)
 	ax.imshow(z, interpolation='bilinear', origin='lower', extent=xlim + ylim,
-			   alpha=0.5, cmap='viridis')
+			   alpha=0.5, cmap='viridis', vmin=vmin, vmax=vmax)
+
+	return np.min(z), np.max(z)
 
 def plot_mixture_linear_system(model, mode='glob', nb_sub=20, gmm=True, min_alpha=0.,
 							   cmap=plt.cm.jet, A=None,b=None, gmr=False, return_strm=False,
