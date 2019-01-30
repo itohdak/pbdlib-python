@@ -240,6 +240,57 @@ class LQR(object):
 		else:
 			return np.array(xis), np.array(us)
 
+class GMMLQR(LQR):
+	"""
+	LQR with a GMM cost on the state, approximation to be checked
+	"""
+
+	def __init__(self, *args, **kwargs):
+		self._full_gmm_xi = None
+		LQR.__init__(self, *args, **kwargs)
+
+	@property
+	def full_gmm_xi(self):
+		"""
+		Distribution of state
+		:return:
+		"""
+		return self._full_gmm_xi
+
+	@full_gmm_xi.setter
+	def full_gmm_xi(self, value):
+		"""
+		:param value 		[pbd.GMM] or [(pbd.GMM, list)]
+		"""
+		self._full_gmm_xi = value
+
+	def ricatti(self, x0, n_best=None):
+		costs = []
+
+		if isinstance(self._full_gmm_xi, pbd.MTMM):
+			full_gmm = self.full_gmm_xi.get_matching_gmm()
+		else:
+			full_gmm = self.full_gmm_xi
+
+		if n_best is not None:
+			log_prob_components = self.full_gmm_xi.log_prob_components(x0)
+			a = np.sort(log_prob_components, axis=0)[-n_best - 1][0]
+
+		for i in range(self.full_gmm_xi.nb_states):
+			if n_best is not None and log_prob_components[i] <a:
+				costs += [-np.inf]
+			else:
+				self.gmm_xi = full_gmm, [i for j in range(self.horizon)]
+				LQR.ricatti(self)
+				xis, us = self.get_seq(x0)
+				costs += [np.sum(self.gmm_u.log_prob(us) + self.full_gmm_xi.log_prob(xis))]
+
+		max_lqr = np.argmax(costs)
+		self.gmm_xi = full_gmm, [max_lqr for j in range(self.horizon)]
+		LQR.ricatti(self)
+
+
+
 class PoGLQR(LQR):
 	"""
 	Implementation of LQR with Product of Gaussian as described in

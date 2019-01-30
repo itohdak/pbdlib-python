@@ -2,7 +2,7 @@ import numpy as np
 from .gmm import GMM, MVN
 from functions import multi_variate_normal, multi_variate_t
 from utils import gaussian_moment_matching
-from scipy.special import gamma, gammaln
+from scipy.special import gamma, gammaln, logsumexp
 
 class MTMM(GMM):
 	"""
@@ -10,9 +10,9 @@ class MTMM(GMM):
 	"""
 
 	def __init__(self, *args, **kwargs):
+		self._nu = kwargs.pop('nu', None)
 		GMM.__init__(self, *args, **kwargs)
 
-		self._nu = None
 		self._k = None
 
 	def __add__(self, other):
@@ -38,6 +38,10 @@ class MTMM(GMM):
 		mtmm.nu = self.nu
 
 		return mtmm
+
+	def get_matching_gmm(self):
+		return GMM(mu=self.mu, sigma=self.sigma * (self.nu/(self.nu-2.))[:, None, None],
+				   priors=self.priors)
 
 	@property
 	def k(self):
@@ -102,6 +106,9 @@ class MTMM(GMM):
 		gmm_out.priors = h[:, 0]
 
 		return gmm_out
+
+	def log_prob(self, x):
+		return logsumexp(self.log_prob_components(x) + np.log(self.priors)[:, None], axis=0)
 
 	def log_prob_components(self, x):
 		dx = self.mu[:, None] - x[None]  # [nb_states, nb_samples, nb_dim]
@@ -375,6 +382,11 @@ class VBayesianGMM(MTMM):
 
 			self._posterior_samples += [_gmm]
 
+	def get_used_states(self):
+		keep = self.nu - 1. > self.nu_prior
+		return MTMM(mu=self.mu[keep], lmbda=self.lmbda[keep],
+					sigma=self.sigma[keep], nu=self.nu[keep], priors=self.priors[keep])
+
 	def posterior(self, data, mean_scale=10., cov=None, dp=True):
 
 		self.nb_dim = data.shape[1]
@@ -394,6 +406,7 @@ class VBayesianGMM(MTMM):
 
 		self.nu = np.copy(m.degrees_of_freedom_) - self.nb_dim + 1
 
+		self.nu_prior = m.degrees_of_freedom_prior
 
 		w_k = np.linalg.inv(m.covariances_ * m.degrees_of_freedom_[:, None, None])
 		l_k = ((m.degrees_of_freedom_[:, None, None] + 1 - self.nb_dim) * m.mean_precision_[:, None, None])/ \

@@ -8,10 +8,19 @@ from mvn import MVN
 
 
 class GMM(Model):
-	def __init__(self, nb_states=1, nb_dim=None, init_zeros=False):
+	def __init__(self, nb_states=1, nb_dim=None, init_zeros=False, mu=None, lmbda=None, sigma=None, priors=None):
+		if mu is not None:
+			nb_states = mu.shape[0]
+			nb_dim = mu.shape[-1]
+
 		Model.__init__(self, nb_states, nb_dim)
 		# flag to indicate that publishing was not init
 		self.publish_init = False
+
+		self._mu = mu
+		self._lmbda = lmbda
+		self._sigma = sigma
+		self._priors = priors
 
 		if init_zeros:
 			self.init_zeros()
