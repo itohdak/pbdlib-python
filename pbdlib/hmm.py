@@ -156,6 +156,31 @@ class HMM(GMM):
 
 		return np.exp(B), B
 
+	def online_forward_message(self, x, marginal=None, reset=False):
+		"""
+
+		:param x:
+		:param marginal: slice
+		:param reset:
+		:return:
+		"""
+		if (not hasattr(self, '_marginal_tmp') or reset) and marginal is not None:
+			self._marginal_tmp = self.marginal_model(marginal)
+
+		if marginal is not None:
+			B, _ = self._marginal_tmp.obs_likelihood(x[None])
+		else:
+			B, _ = self.obs_likelihood(x[None])
+
+		if not hasattr(self, '_alpha_tmp') or reset:
+			self._alpha_tmp = self.init_priors * B[:, 0]
+		else:
+			self._alpha_tmp = self._alpha_tmp.dot(self.Trans) * B[:, 0]
+
+		self._alpha_tmp /= np.sum(self._alpha_tmp, keepdims=True)
+
+		return self._alpha_tmp
+
 	def compute_messages(self, demo=None, dep=None, table=None, marginal=None, sample_size=200, demo_idx=None):
 		"""
 
@@ -285,7 +310,7 @@ class HMM(GMM):
 		self.init_priors = np.array([1.] + [0. for i in range(self.nb_states-1)])
 
 	def em(self, demos, dep=None, reg=1e-8, table=None, end_cov=False, cov_type='full', dep_mask=None,
-		   reg_finish=None, left_to_right=False, nb_max_steps=40, loop=False):
+		   reg_finish=None, left_to_right=False, nb_max_steps=40, loop=False, obs_fixed=False, trans_reg=None):
 		"""
 
 		:param demos:	[list of np.array([nb_timestep, nb_dim])]
@@ -355,23 +380,24 @@ class HMM(GMM):
 			gamma2 = gamma / (np.sum(gamma, axis=1, keepdims=True) + realmin)
 
 			# M-step
-			for i in range(self.nb_states):
-				# Update centers
-				self.mu[i] = np.einsum('a,ia->i',gamma2[i], data)
+			if not obs_fixed:
+				for i in range(self.nb_states):
+					# Update centers
+					self.mu[i] = np.einsum('a,ia->i',gamma2[i], data)
 
-				# Update covariances
-				Data_tmp = data - self.mu[i][:, None]
-				self.sigma[i] = np.einsum('ij,jk->ik',
-												np.einsum('ij,j->ij', Data_tmp,
-														  gamma2[i, :]), Data_tmp.T)
-				# Regularization
-				self.sigma[i] = self.sigma[i] + self.reg
+					# Update covariances
+					Data_tmp = data - self.mu[i][:, None]
+					self.sigma[i] = np.einsum('ij,jk->ik',
+													np.einsum('ij,j->ij', Data_tmp,
+															  gamma2[i, :]), Data_tmp.T)
+					# Regularization
+					self.sigma[i] = self.sigma[i] + self.reg
 
-				if cov_type == 'diag':
-					self.sigma[i] *= np.eye(self.sigma.shape[1])
+					if cov_type == 'diag':
+						self.sigma[i] *= np.eye(self.sigma.shape[1])
 
-			if dep_mask is not None:
-				self.sigma *= dep_mask
+				if dep_mask is not None:
+					self.sigma *= dep_mask
 
 			# Update initial state probablility vector
 			self.init_priors = np.mean(gamma_init, axis=1)
@@ -379,10 +405,13 @@ class HMM(GMM):
 			# Update transition probabilities
 			self.Trans = np.sum(zeta, axis=2) / (np.sum(gamma_trk, axis=1) + realmin)
 
+			if trans_reg is not None:
+				self.Trans += trans_reg
+				self.Trans /= np.sum(self.Trans, axis=1, keepdims=True)
 
 			if left_to_right or loop:
 				self.Trans *= mask
-				self.Trans /= np.sum(self.Trans, axis=0, keepdims=True)
+				self.Trans /= np.sum(self.Trans, axis=1, keepdims=True)
 
 
 			# print self.Trans

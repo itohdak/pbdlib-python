@@ -19,8 +19,8 @@ class LQR(object):
 
 		self._seq_xi, self._seq_u = None, None
 
-		self._S, self._v, self._K, self._Kv, self._ds, self._Q = \
-			None, None, None, None, None, None
+		self._S, self._v, self._K, self._Kv, self._ds, self._cs , self._Q = \
+			None, None, None, None, None, None, None
 
 	@property
 	def K(self):
@@ -35,7 +35,26 @@ class LQR(object):
 		return self._Q
 
 	@property
+	def cs(self):
+		"""
+		Return c list where control command u is
+			u = -K x + c
+
+		:return:
+		"""
+		if self._cs is None:
+			self._cs = self.get_feedforward()
+
+		return self._cs
+
+	@property
 	def ds(self):
+		"""
+		Return c list where control command u is
+			u = K(d - x)
+
+		:return:
+		"""
 		if self._ds is None:
 			self._ds = self.get_target()
 
@@ -201,6 +220,7 @@ class LQR(object):
 		self._Q = _Q
 
 		self._ds = None
+		self._cs = None
 
 	def get_target(self):
 		ds = []
@@ -210,13 +230,13 @@ class LQR(object):
 
 		return np.array(ds)
 
-	def get_target(self):
-		ds = []
+	def get_feedforward(self):
+		cs = []
 
 		for t in range(0, self.horizon-1):
-			ds += [np.linalg.inv(self._S[t].dot(self.A)).dot(self._v[t])]
+			cs += [self._Kv[t].dot(self._v[t+1])]
 
-		return np.array(ds)
+		return np.array(cs)
 
 	def get_seq(self, xi0, return_target=False):
 		xis = [xi0]

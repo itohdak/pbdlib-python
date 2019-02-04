@@ -9,7 +9,7 @@ from .mvn import *
 from .plot import *
 from .pylqr import *
 from .poglqr import PoGLQR, LQR, GMMLQR
-from .mtmm import MTMM, VBayesianGMM, VMBayesianGMM
+from .mtmm import MTMM, VBayesianGMM, VMBayesianGMM, VBayesianHMM
 
 try:
 	import gui
