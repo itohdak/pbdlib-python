@@ -237,7 +237,7 @@ class MTMM(GMM):
 		# the conditional distribution is now a still a mixture
 
 		if return_gmm:
-			return mu_est, sigma_est * nu/(nu-2.)
+			return h, mu_est, sigma_est * (nu/(nu-2.))[:, None, None, None]
 		elif return_linear:
 			As = inv_sigma_out_in
 			bs = mu_out - np.matmul(inv_sigma_out_in, mu_in[:, :, None])[:, :, 0]
