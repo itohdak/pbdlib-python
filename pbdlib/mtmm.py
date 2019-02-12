@@ -1,5 +1,6 @@
 import numpy as np
 from .gmm import GMM, MVN
+from .hmm import HMM
 from functions import multi_variate_normal, multi_variate_t
 from utils import gaussian_moment_matching
 from scipy.special import gamma, gammaln, logsumexp
@@ -122,6 +123,9 @@ class MTMM(GMM):
 		log_norm = self.log_normalization[:, None]
 		return log_norm + (-(self.nu + self.nb_dim) / 2)[:, None] * np.log(1 + s/ self.nu[:, None])
 
+	def obs_likelihood(self, demo=None, dep=None, marginal=None, *args, **kwargs):
+		B = self.log_prob_components(demo)
+		return np.exp(B), B
 	@property
 	def log_normalization(self):
 		if self._log_normalization is None:
@@ -251,7 +255,7 @@ class MTMM(GMM):
 			# apply moment matching to get a single MVN for each datapoint
 			return gaussian_moment_matching(mu_est, sigma_est * (nu/(nu-2.))[:, None, None, None], h)
 
-	def get_pred_post_uncertainty(self, data_in, dim_in, dim_out):
+	def get_pred_post_uncertainty(self, data_in, dim_in, dim_out, log=False):
 		"""
 		[1] M. Hofert, 'On the Multivariate t Distribution,' R J., vol. 5, pp. 129-136, 2013.
 
@@ -318,8 +322,10 @@ class MTMM(GMM):
 		_, _covs = gaussian_moment_matching(mu_est, sigma_est, h.T)
 
 		# return a
-		return np.linalg.det(_covs)
-
+		if log:
+			return np.linalg.slogdet(_covs)[1]
+		else:
+			return np.linalg.det(_covs)
 		# the conditional distribution is now a still a mixture
 
 
@@ -366,7 +372,7 @@ class VBayesianGMM(MTMM):
 			_gmm = GMM()
 
 			_gmm.lmbda = np.array(
-				[wishart.rvs(m.degrees_of_freedom_[i],
+				[wishart.rvs(m.degrees_of_freedom_[i] + 1.,
 							 np.linalg.inv(m.covariances_[i] * m.degrees_of_freedom_[i]))
 				 for i in range(nb_states)])
 
@@ -381,7 +387,7 @@ class VBayesianGMM(MTMM):
 			self._posterior_samples += [_gmm]
 
 	def get_used_states(self):
-		keep = self.nu - 1. > self.nu_prior
+		keep = self.nu + self.nb_dim - 1.01 > self.nu_prior
 		return MTMM(mu=self.mu[keep], lmbda=self.lmbda[keep],
 					sigma=self.sigma[keep], nu=self.nu[keep], priors=self.priors[keep])
 
@@ -451,6 +457,14 @@ class VBayesianGMM(MTMM):
 		else:
 			return mu, sigma
 
+class VBayesianHMM(VBayesianGMM, HMM):
+	def __init__(self, *args, **kwargs):
+		VBayesianGMM.__init__(self, *args, **kwargs)
+		self._trans = None
+		self._init_priors = None
+
+	def obs_likelihood(self, demo=None, dep=None, marginal=None, *args, **kwargs):
+		return VBayesianGMM.obs_likelihood(self, demo=demo, dep=dep, marginal=marginal)
 
 class VMBayesianGMM(VBayesianGMM):
 	def __init__(self, n, sk_parameters, *args, **kwargs):

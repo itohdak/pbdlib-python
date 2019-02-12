@@ -526,6 +526,10 @@ def plot_gmm(Mu, Sigma, dim=None, color=[1, 0, 0], alpha=0.5, linewidth=1, marke
 				l, = plt.plot(Mu[0, i], Mu[1, i], '.', color=c, alpha=a)  # Mean
 			else:
 				l, = plt.plot(Mu[i, 0], Mu[i, 1], '.', color=c, alpha=a)  # Mean
+
+			if border:
+				plt.plot(points[0, :], points[1, :], color=c, linewidth=linewidth,
+						markersize=markersize)  # Contour
 					# plt.plot(points[0,:], points[1,:], color=c, linewidth=linewidth , markersize=markersize) # Contour
 
 	return l
@@ -625,6 +629,39 @@ def plot_dynamic_system(f, nb_sub=10, ax=None, xlim=[-1, 1], ylim=[-1, 1], scale
 			plt.axes().set_aspect('equal')
 
 	return [strm]
+
+def plot_trans(mu, trans, dim=[0, 1], a=0.1, ds=0.2, min_alpha=0.05, ax=None, **kwargs):
+	std_mu = np.std(mu)
+	kwargs['fc'] = kwargs.pop('fc', 'k')
+	kwargs['ec'] = kwargs.pop('ec', 'k')
+	kwargs['head_width'] = kwargs.pop('head_width', 0.2 * std_mu)
+	kwargs['width'] = kwargs.pop('width', 0.03 * std_mu)
+	trans_wd = trans - trans * np.eye(trans.shape[0])  # remove diag
+	trans_wd /= (np.sum(trans_wd, axis=1, keepdims=True) + 1e-10)
+	mu = mu[:, dim]
+
+
+	for i in range(mu.shape[0]):
+		for j in range(mu.shape[0]):
+			if i == j: continue;
+			alpha = (trans_wd[i, j] + min_alpha)/(1. + min_alpha)
+
+			s = a  * mu[j] + (1.-a) * mu[i]
+			e = (1.- a)  * mu[j] + (a) * mu[i]
+
+			ortho = np.roll(e - s, 1) * np.array([-1., 1])
+			ortho /= np.linalg.norm(ortho)
+
+			s += ortho * ds * kwargs['head_width']
+			e += ortho * ds * kwargs['head_width']
+
+			d = e - s
+			if ax is None:
+				ax = plt
+			ax.arrow(
+				s[0], s[1], d[0], d[1], length_includes_head=True,
+				alpha=alpha, shape='right', **kwargs)
+
 
 def plot_trajdist(td, ix=0, iy=1, covScale=1, color=[1, 0, 0], alpha=0.1, linewidth=0.1):
 	'''Plot 2D representation of a trajectory distribution'''
