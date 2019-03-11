@@ -559,7 +559,7 @@ def plot_gaussian(mu, sigma, dim=None, color='r', alpha=0.5, lw=1, markersize=6,
 	return center, line
 
 def plot_y_gaussian(x, mu, sigma, dim=0, alpha=1., alpha_fill=None, color='r', lw=1.,
-					ax=None):
+					ax=None, label=None):
 	"""
 
 	:param mu: 		[n_states]
@@ -577,7 +577,7 @@ def plot_y_gaussian(x, mu, sigma, dim=0, alpha=1., alpha_fill=None, color='r', l
 	if ax is None:
 		ax = plt
 
-	ax.plot(x, mu[:, dim], alpha=alpha, color=color)
+	ax.plot(x, mu[:, dim], alpha=alpha, color=color, label=label)
 	ax.fill_between(x,
 					 mu[:, dim] - sigma[:, dim, dim] ** 0.5,
 					 mu[:, dim] + sigma[:, dim, dim] ** 0.5,

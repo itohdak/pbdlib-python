@@ -244,6 +244,25 @@ class Model(object):
 
 		return np.sum(xs, axis=0)
 
+	def get_linear_conditional(self, dim_in, dim_out):
+		mu_in, sigma_in = self.get_marginal(dim_in)
+		mu_out, sigma_out = self.get_marginal(dim_out)  # get marginal distribution of x_out
+
+		# get conditional distribution of x_out given x_in for each states p(x_out|x_in, k)
+		_, sigma_in_out = self.get_marginal(dim_in, dim_out)
+
+
+		inv_sigma_in_in = np.linalg.inv(
+			sigma_in)
+		inv_sigma_out_in = np.einsum('aji,ajk->aik', sigma_in_out, inv_sigma_in_in)
+
+		As = inv_sigma_out_in
+		bs = mu_out - np.matmul(inv_sigma_out_in, mu_in[:, :, None])[:, :, 0]
+
+		sigma_est = (sigma_out - np.matmul(inv_sigma_out_in, sigma_in_out))
+
+		return As, bs, sigma_est
+
 	def condition(self, data_in, dim_in, dim_out, h=None, return_gmm=False):
 		"""
 
@@ -289,8 +308,9 @@ class Model(object):
 			sigma_est += [sigma_out[i] - inv_sigma_out_in[-1].dot(sigma_in_out[i])]
 
 		mu_est, sigma_est = (np.asarray(mu_est), np.asarray(sigma_est))
+
 		if return_gmm:
-			return  mu_est, sigma_est
+			return  h, mu_est, sigma_est
 		# return np.mean(mu_est, axis=0)
 		else:
 
