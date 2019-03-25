@@ -23,6 +23,68 @@ def get_canonical(nb_dim, nb_deriv=2, dt=0.01):
 
 	return np.kron(A1d, np.eye(nb_dim)), np.kron(B1d, np.eye(nb_dim))
 
+def multi_timestep_matrix(A, B, nb_step=4):
+	xi_dim, u_dim = A.shape[0], B.shape[1]
+	_A = np.zeros((xi_dim * nb_step, xi_dim * nb_step))
+	_B = np.zeros((xi_dim * nb_step, u_dim))
+
+	_A[:xi_dim, :xi_dim] = A
+
+	for i in range(1, nb_step):
+		_A[xi_dim * i:xi_dim * (i + 1), xi_dim * (i - 1):xi_dim * i] = np.eye(xi_dim)
+
+	_B[:xi_dim, :u_dim] = B
+	return _A, _B
+
+
+def fd_transform(d, xi_dim, nb_past, dt=0.1):
+	"""
+	Finite difference transform matrix
+
+	:param d:
+	:param xi_dim:
+	:param nb_past:
+	:param dt:
+	:return:
+	"""
+
+	T_1 = np.zeros((xi_dim * nb_past, xi_dim * (nb_past - d)))
+
+	for i in range(nb_past - d):
+		T_1[xi_dim * i:xi_dim * (i + 1), xi_dim * (i):xi_dim * (i + 1)] = np.eye(
+			xi_dim) * dt ** d
+
+		nb = [[1],
+			  [1, -1],
+			  [1., -2, 1],
+			  [1., -3, 3, -1],
+			  [1., -4., 6., -4., 1.]]
+
+		for j in range(d):
+			T_1[xi_dim * (i + 1 + j):xi_dim * (i + 2 + j), xi_dim * i:xi_dim * (i + 1)] = \
+				nb[d][j + 1] * np.eye(xi_dim) * dt ** d
+
+	return T_1
+
+def multi_timestep_fd_q(rs, xi_dim, dt):
+	"""
+
+	:param rs: list of std deviations of derivatives
+	:param xi_dim:
+	:param nb_past:
+	:param dt:
+	:return:
+	"""
+	nb_past = len(rs)
+
+	Qs = []
+	for i in range(nb_past):
+		T = fd_transform(i + 1, xi_dim, nb_past, dt)
+		Q = np.eye((xi_dim * (nb_past - i - 1))) * rs[i] ** -2
+		Qs += [T.dot(Q).dot(T.T)]
+
+	return np.sum(Qs, axis=0)
+
 
 def lifted_noise_matrix(A=None, B=None, nb_dim=3, dt=0.01, horizon=50):
 	r"""
@@ -104,7 +166,7 @@ def gu_pinv(A, rcond=1e-15):
 	return np.array([[np.linalg.pinv(A[i, j]) for j in range(J)] for i in range(I)])
 
 
-def _create_relative_time(q, start=-1.):
+def create_relative_time(q, start=-1.):
 	"""
 	:param 	q:		[list of int]
 		List of state indicator.
@@ -139,7 +201,7 @@ def align_trajectories_hsmm(data, nb_states=5):
 
 	qs = [model.viterbi(d) for d in data_vectorized]
 
-	time, sqs = zip(*[_create_relative_time(q) for q in qs])
+	time, sqs = zip(*[create_relative_time(q) for q in qs])
 
 	start_idx = [np.array((np.nonzero(np.diff(q))[0] + 1).tolist()) for q in qs]
 

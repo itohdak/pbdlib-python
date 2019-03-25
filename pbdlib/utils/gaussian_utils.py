@@ -1,6 +1,6 @@
 import numpy as np
 
-def gaussian_moment_matching(mus, sigmas, h):
+def gaussian_moment_matching(mus, sigmas, h=None):
 	"""
 
 	:param mu:			[np.array([nb_states, nb_timestep, nb_dim])]
@@ -10,6 +10,10 @@ def gaussian_moment_matching(mus, sigmas, h):
 	:param h: 			[np.array([nb_timestep, nb_states])]
 	:return:
 	"""
+
+	if h is None:
+		h = np.ones((mus.shape[1], mus.shape[0]))/ mus.shape[0]
+
 	if h.ndim == 1:
 		h = h[None]
 

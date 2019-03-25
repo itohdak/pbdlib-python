@@ -48,7 +48,34 @@ class HMM(GMM):
 	def Trans(self, value):
 		self.trans = value
 
-	def viterbi(self, demo):
+
+	def make_finish_state(self, demos, dep_mask=None):
+		self.has_finish_state = True
+		self.nb_states += 1
+
+		data = np.concatenate([d[-3:] for d in demos])
+
+		mu = np.mean(data, axis=0)
+
+		# Update covariances
+		if data.shape[0] > 1:
+			sigma = np.einsum('ai,aj->ij',data-mu, data-mu)/(data.shape[0] - 1) + self.reg
+		else:
+			sigma = self.reg
+
+		# if cov_type == 'diag':
+		# 	self.sigma *= np.eye(self.nb_dim)
+
+		if dep_mask is not None:
+			sigma *= dep_mask
+
+		self.mu = np.concatenate([self.mu, mu[None]], axis=0)
+		self.sigma = np.concatenate([self.sigma, sigma[None]], axis=0)
+		self.init_priors = np.concatenate([self.init_priors, np.zeros(1)], axis=0)
+		self.priors = np.concatenate([self.priors, np.zeros(1)], axis=0)
+		pass
+
+	def viterbi(self, demo, reg=False):
 		"""
 		Compute most likely sequence of state given observations
 
@@ -65,13 +92,13 @@ class HMM(GMM):
 		_, logB = self.obs_likelihood(demo)
 
 		# forward pass
-		logDELTA[:, 0] = np.log(self.init_priors + realmin) + logB[:, 0]
+		logDELTA[:, 0] = np.log(self.init_priors + realmin * reg) + logB[:, 0]
 
 		for t in range(1, nb_data):
 			for i in range(self.nb_states):
 				# get index of maximum value : most probables
-				PSI[i, t] = np.argmax(logDELTA[:, t - 1] + np.log(self.Trans[:, i] + realmin))
-				logDELTA[i, t] = np.max(logDELTA[:, t - 1] + np.log(self.Trans[:, i] + realmin)) + logB[i, t]
+				PSI[i, t] = np.argmax(logDELTA[:, t - 1] + np.log(self.Trans[:, i] + realmin * reg))
+				logDELTA[i, t] = np.max(logDELTA[:, t - 1] + np.log(self.Trans[:, i] + realmin * reg)) + logB[i, t]
 
  		assert not np.any(np.isnan(logDELTA)), "Nan values"
 
@@ -114,17 +141,45 @@ class HMM(GMM):
 					mu, sigma = self.get_marginal(marginal)
 
 				if dep is None :
-					B[i, :] = multi_variate_normal(demo,
-												   mu[i],
-												   sigma[i], log=True)
+					B[i, :] = multi_variate_normal(demo, mu[i], sigma[i], log=True)
+
 				else:  # block diagonal computation
-					B[i, :] = 1.0
+					B[i, :] = 0.
 					for d in dep:
-						dGrid = np.ix_([i], d, d)
-						B[[i], :] += multi_variate_normal(demo, mu[d, i],
-														  sigma[dGrid][0], log=True)
+						if isinstance(d, list):
+							dGrid = np.ix_([i], d, d)
+							B[[i], :] += multi_variate_normal(demo[:, d], mu[i, d],
+															  sigma[dGrid][0], log=True)
+						elif isinstance(d, slice):
+							B[[i], :] += multi_variate_normal(demo[:, d], mu[i, d],
+															  sigma[i, d, d], log=True)
 
 		return np.exp(B), B
+
+	def online_forward_message(self, x, marginal=None, reset=False):
+		"""
+
+		:param x:
+		:param marginal: slice
+		:param reset:
+		:return:
+		"""
+		if (not hasattr(self, '_marginal_tmp') or reset) and marginal is not None:
+			self._marginal_tmp = self.marginal_model(marginal)
+
+		if marginal is not None:
+			B, _ = self._marginal_tmp.obs_likelihood(x[None])
+		else:
+			B, _ = self.obs_likelihood(x[None])
+
+		if not hasattr(self, '_alpha_tmp') or reset:
+			self._alpha_tmp = self.init_priors * B[:, 0]
+		else:
+			self._alpha_tmp = self._alpha_tmp.dot(self.Trans) * B[:, 0]
+
+		self._alpha_tmp /= np.sum(self._alpha_tmp, keepdims=True)
+
+		return self._alpha_tmp
 
 	def compute_messages(self, demo=None, dep=None, table=None, marginal=None, sample_size=200, demo_idx=None):
 		"""
@@ -151,7 +206,6 @@ class HMM(GMM):
 		B, _ = self.obs_likelihood(demo, dep, marginal, sample_size)
 		# if table is not None:
 		# 	B *= table[:, [n]]
-
 		self._B = B
 
 		# forward variable alpha (rescaled)
@@ -172,7 +226,7 @@ class HMM(GMM):
 		beta = np.zeros((self.nb_states, sample_size))
 		beta[:, -1] = np.ones(self.nb_states) * c[-1]  # Rescaling
 		for t in range(sample_size - 2, -1, -1):
-			beta[:, t] = np.dot(self.Trans, beta[:, t + 1]) * B[:, t + 1]
+			beta[:, t] = np.dot(self.Trans, beta[:, t + 1] * B[:, t + 1])
 			beta[:, t] = np.minimum(beta[:, t] * c[t], realmax)
 
 		# Smooth node marginals, gamma
@@ -190,6 +244,47 @@ class HMM(GMM):
 
 		return alpha, beta, gamma, zeta, c
 
+	def init_params_random(self, data, left_to_right=False, self_trans=0.9):
+		"""
+
+		:param data:
+		:param left_to_right:  	if True, init with left to right. All observations models
+			will be the same, and transition matrix will be set to l_t_r
+		:type left_to_right: 	bool
+		:param self_trans:		if left_to_right, self transition value to fill
+		:type self_trans:		float
+		:return:
+		"""
+		mu = np.mean(data, axis=0)
+		sigma = np.cov(data.T)
+
+		if left_to_right:
+			self.mu = np.array([mu for i in range(self.nb_states)])
+		else:
+			self.mu = np.array([np.random.multivariate_normal(mu, sigma)
+				 for i in range(self.nb_states)])
+
+		self.sigma = np.array([sigma + self.reg for i in range(self.nb_states)])
+		self.priors = np.ones(self.nb_states) / self.nb_states
+
+		if left_to_right:
+			self.Trans = np.zeros((self.nb_states, self.nb_states))
+			for i in range(self.nb_states):
+				if i < self.nb_states - 1:
+					self.Trans[i, i] = self_trans
+					self.Trans[i, i+1] = 1. - self_trans
+				else:
+					self.Trans[i, i] = 1.
+
+			self.init_priors = np.zeros(self.nb_states)/ self.nb_states
+		else:
+			self.Trans = np.ones((self.nb_states, self.nb_states)) * (1.-self_trans)/(self.nb_states-1)
+			# remove diagonal
+			self.Trans *= (1.-np.eye(self.nb_states))
+			self.Trans += self_trans * np.eye(self.nb_states)
+			self.init_priors = np.ones(self.nb_states)/ self.nb_states
+
+
 	def gmm_init(self, data, **kwargs):
 		if isinstance(data, list):
 			data = np.concatenate(data, axis=0)
@@ -198,16 +293,35 @@ class HMM(GMM):
 		self.init_priors = np.ones(self.nb_states) / self.nb_states
 		self.Trans = np.ones((self.nb_states, self.nb_states))/self.nb_states
 
+	def init_loop(self, demos):
+		self.Trans = 0.98 * np.eye(self.nb_states)
+		for i in range(self.nb_states-1):
+			self.Trans[i, i + 1] = 0.02
+
+		self.Trans[-1, 0] = 0.02
+
+		data = np.concatenate(demos, axis=0)
+		_mu = np.mean(data, axis=0)
+		_cov = np.cov(data.T)
+
+		self.mu = np.array([_mu for i in range(self.nb_states)])
+		self.sigma = np.array([_cov for i in range(self.nb_states)])
+
+		self.init_priors = np.array([1.] + [0. for i in range(self.nb_states-1)])
+
 	def em(self, demos, dep=None, reg=1e-8, table=None, end_cov=False, cov_type='full', dep_mask=None,
-		   reg_finish=None):
+		   reg_finish=None, left_to_right=False, nb_max_steps=40, loop=False, obs_fixed=False, trans_reg=None):
 		"""
 
 		:param demos:	[list of np.array([nb_timestep, nb_dim])]
 				or [lisf of dict({})]
-		:param dep:		[A x [B x [int]]] A list of list of dimensions
+		:param dep:		[A x [B x [int]]] A list of list of dimensions or slices
 			Each list of dimensions indicates a dependence of variables in the covariance matrix
+			!!! dimensions should not overlap eg : [[0], [0, 1]] should be [[0, 1]], [[0, 1], [1, 2]] should be [[0, 1, 2]]
 			E.g. [[0],[1],[2]] indicates a diagonal covariance matrix
 			E.g. [[0, 1], [2]] indicates a full covariance matrix between [0, 1] and no
+			covariance with dim [2]
+			E.g. [slice(0, 2), [2]] indicates a full covariance matrix between [0, 1] and no
 			covariance with dim [2]
 		:param reg:		[float] or list [nb_dim x float] for different regularization in different dimensions
 			Regularization term used in M-step for covariance matrices
@@ -221,8 +335,7 @@ class HMM(GMM):
 
 		if reg_finish is not None: end_cov = True
 
-		nb_min_steps = 5  # min num iterations
-		nb_max_steps = 50  # max iterations
+		nb_min_steps = 2  # min num iterations
 		max_diff_ll = 1e-4  # max log-likelihood increase
 
 		nb_samples = len(demos)
@@ -233,8 +346,25 @@ class HMM(GMM):
 		# stored log-likelihood
 		LL = np.zeros(nb_max_steps)
 
+		if dep is not None:
+			dep_mask = self.get_dep_mask(dep)
+
 		self.reg = reg
+
+		if self.mu is None or self.sigma is None:
+			self.init_params_random(data.T, left_to_right=left_to_right)
+
 		# create regularization matrix
+
+		if left_to_right or loop:
+			mask = np.eye(self.Trans.shape[0])
+			for i in range(self.Trans.shape[0] - 1):
+				mask[i, i + 1] = 1.
+			if loop:
+				mask[-1, 0] = 1.
+
+		if dep_mask is not None:
+			self.sigma *= dep_mask
 
 		for it in range(nb_max_steps):
 
@@ -250,29 +380,40 @@ class HMM(GMM):
 			gamma2 = gamma / (np.sum(gamma, axis=1, keepdims=True) + realmin)
 
 			# M-step
-			for i in range(self.nb_states):
-				# Update centers
-				self.mu[i] = np.einsum('a,ia->i',gamma2[i], data)
+			if not obs_fixed:
+				for i in range(self.nb_states):
+					# Update centers
+					self.mu[i] = np.einsum('a,ia->i',gamma2[i], data)
 
-				# Update covariances
-				Data_tmp = data - self.mu[i][:, None]
-				self.sigma[i] = np.einsum('ij,jk->ik',
-												np.einsum('ij,j->ij', Data_tmp,
-														  gamma2[i, :]), Data_tmp.T)
-				# Regularization
-				self.sigma[i] = self.sigma[i] + self.reg
+					# Update covariances
+					Data_tmp = data - self.mu[i][:, None]
+					self.sigma[i] = np.einsum('ij,jk->ik',
+													np.einsum('ij,j->ij', Data_tmp,
+															  gamma2[i, :]), Data_tmp.T)
+					# Regularization
+					self.sigma[i] = self.sigma[i] + self.reg
 
-				if cov_type == 'diag':
-					self.sigma[i] *= np.eye(self.sigma.shape[1])
+					if cov_type == 'diag':
+						self.sigma[i] *= np.eye(self.sigma.shape[1])
 
-			if dep_mask is not None:
-				self.sigma *= dep_mask
+				if dep_mask is not None:
+					self.sigma *= dep_mask
 
 			# Update initial state probablility vector
 			self.init_priors = np.mean(gamma_init, axis=1)
 
 			# Update transition probabilities
 			self.Trans = np.sum(zeta, axis=2) / (np.sum(gamma_trk, axis=1) + realmin)
+
+			if trans_reg is not None:
+				self.Trans += trans_reg
+				self.Trans /= np.sum(self.Trans, axis=1, keepdims=True)
+
+			if left_to_right or loop:
+				self.Trans *= mask
+				self.Trans /= np.sum(self.Trans, axis=1, keepdims=True)
+
+
 			# print self.Trans
 			# Compute avarage log-likelihood using alpha scaling factors
 			LL[it] = 0
@@ -285,7 +426,6 @@ class HMM(GMM):
 			# Check for convergence
 			if it > nb_min_steps and LL[it] - LL[it - 1] < max_diff_ll:
 				print "EM converges"
-				print end_cov
 				if end_cov:
 					for i in range(self.nb_states):
 						# recompute covariances without regularization
@@ -303,12 +443,15 @@ class HMM(GMM):
 
 				# print "EM converged after " + str(it) + " iterations"
 				# print LL[it]
-				return gamma
+
+				if dep_mask is not None:
+					self.sigma *= dep_mask
+
+				return True
 
 
 		print "EM did not converge"
-		print LL
-		return gamma
+		return False
 
 	def score(self, demos):
 		"""

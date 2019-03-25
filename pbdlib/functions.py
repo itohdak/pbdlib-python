@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.interpolate import interp1d
+from scipy.special import gamma, gammaln
 
 colvec = lambda x: np.array(x).reshape(-1, 1)
 rowvec = lambda x: np.array(x).reshape(1, -1)
@@ -262,7 +263,7 @@ def multi_variate_t(x, nu, mu, sigma=None, log=True, gmm=False, lmbda=None):
 	:param log: 	bool
 	:return:
 	"""
-	from scipy.special import gamma, gammaln
+	from scipy.special import gamma
 	if not gmm:
 		if type(sigma) is float:
 			sigma = np.array(sigma, ndmin=2)

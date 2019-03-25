@@ -269,7 +269,7 @@ def plot_linear_system(K, b=None, name=None, nb_sub=10, ax0=None, xlim=[-1, 1], 
 		return [strm]
 
 
-def plot_function_map(f, nb_sub=10, ax=None, xlim=[-1, 1], ylim=[-1, 1], opp=False, exp=False):
+def plot_function_map(f, nb_sub=10, ax=None, xlim=[-1, 1], ylim=[-1, 1], opp=False, exp=False, vmin=None, vmax=None, contour=True):
 	"""
 
 	:param f:			[function]
@@ -296,12 +296,18 @@ def plot_function_map(f, nb_sub=10, ax=None, xlim=[-1, 1], ylim=[-1, 1], opp=Fal
 	if ax is None:
 		ax = plt
 
-	CS = ax.contour(xx, yy, z, cmap='viridis')
-	ax.clabel(CS, inline=1, fontsize=10)
+	if contour:
+		try:
+			CS = ax.contour(xx, yy, z, cmap='viridis')
+			ax.clabel(CS, inline=1, fontsize=10)
+		except:
+			pass
 	if opp: z = -z
 	if exp: z = np.exp(z)
 	ax.imshow(z, interpolation='bilinear', origin='lower', extent=xlim + ylim,
-			   alpha=0.5, cmap='viridis')
+			   alpha=0.5, cmap='viridis', vmin=vmin, vmax=vmax)
+
+	return np.min(z), np.max(z)
 
 def plot_mixture_linear_system(model, mode='glob', nb_sub=20, gmm=True, min_alpha=0.,
 							   cmap=plt.cm.jet, A=None,b=None, gmr=False, return_strm=False,
@@ -520,6 +526,10 @@ def plot_gmm(Mu, Sigma, dim=None, color=[1, 0, 0], alpha=0.5, linewidth=1, marke
 				l, = plt.plot(Mu[0, i], Mu[1, i], '.', color=c, alpha=a)  # Mean
 			else:
 				l, = plt.plot(Mu[i, 0], Mu[i, 1], '.', color=c, alpha=a)  # Mean
+
+			if border:
+				plt.plot(points[0, :], points[1, :], color=c, linewidth=linewidth,
+						markersize=markersize)  # Contour
 					# plt.plot(points[0,:], points[1,:], color=c, linewidth=linewidth , markersize=markersize) # Contour
 
 	return l
@@ -549,7 +559,7 @@ def plot_gaussian(mu, sigma, dim=None, color='r', alpha=0.5, lw=1, markersize=6,
 	return center, line
 
 def plot_y_gaussian(x, mu, sigma, dim=0, alpha=1., alpha_fill=None, color='r', lw=1.,
-					ax=None):
+					ax=None, label=None):
 	"""
 
 	:param mu: 		[n_states]
@@ -567,7 +577,7 @@ def plot_y_gaussian(x, mu, sigma, dim=0, alpha=1., alpha_fill=None, color='r', l
 	if ax is None:
 		ax = plt
 
-	ax.plot(x, mu[:, dim], alpha=alpha, color=color)
+	ax.plot(x, mu[:, dim], alpha=alpha, color=color, label=label)
 	ax.fill_between(x,
 					 mu[:, dim] - sigma[:, dim, dim] ** 0.5,
 					 mu[:, dim] + sigma[:, dim, dim] ** 0.5,
@@ -619,6 +629,39 @@ def plot_dynamic_system(f, nb_sub=10, ax=None, xlim=[-1, 1], ylim=[-1, 1], scale
 			plt.axes().set_aspect('equal')
 
 	return [strm]
+
+def plot_trans(mu, trans, dim=[0, 1], a=0.1, ds=0.2, min_alpha=0.05, ax=None, **kwargs):
+	std_mu = np.std(mu)
+	kwargs['fc'] = kwargs.pop('fc', 'k')
+	kwargs['ec'] = kwargs.pop('ec', 'k')
+	kwargs['head_width'] = kwargs.pop('head_width', 0.2 * std_mu)
+	kwargs['width'] = kwargs.pop('width', 0.03 * std_mu)
+	trans_wd = trans - trans * np.eye(trans.shape[0])  # remove diag
+	trans_wd /= (np.sum(trans_wd, axis=1, keepdims=True) + 1e-10)
+	mu = mu[:, dim]
+
+
+	for i in range(mu.shape[0]):
+		for j in range(mu.shape[0]):
+			if i == j: continue;
+			alpha = (trans_wd[i, j] + min_alpha)/(1. + min_alpha)
+
+			s = a  * mu[j] + (1.-a) * mu[i]
+			e = (1.- a)  * mu[j] + (a) * mu[i]
+
+			ortho = np.roll(e - s, 1) * np.array([-1., 1])
+			ortho /= np.linalg.norm(ortho)
+
+			s += ortho * ds * kwargs['head_width']
+			e += ortho * ds * kwargs['head_width']
+
+			d = e - s
+			if ax is None:
+				ax = plt
+			ax.arrow(
+				s[0], s[1], d[0], d[1], length_includes_head=True,
+				alpha=alpha, shape='right', **kwargs)
+
 
 def plot_trajdist(td, ix=0, iy=1, covScale=1, color=[1, 0, 0], alpha=0.1, linewidth=0.1):
 	'''Plot 2D representation of a trajectory distribution'''

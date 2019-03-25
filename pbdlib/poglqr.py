@@ -1,7 +1,6 @@
 import numpy as np
 from utils.utils import lifted_transfer_matrix
 import pbdlib as pbd
-import scipy.sparse as ss
 
 class LQR(object):
 	def __init__(self, A=None, B=None, nb_dim=2, dt=0.01, horizon=50):
@@ -20,8 +19,8 @@ class LQR(object):
 
 		self._seq_xi, self._seq_u = None, None
 
-		self._S, self._v, self._K, self._Kv, self._ds, self._Q = \
-			None, None, None, None, None, None
+		self._S, self._v, self._K, self._Kv, self._ds, self._cs , self._Q = \
+			None, None, None, None, None, None, None
 
 	@property
 	def K(self):
@@ -36,7 +35,26 @@ class LQR(object):
 		return self._Q
 
 	@property
+	def cs(self):
+		"""
+		Return c list where control command u is
+			u = -K x + c
+
+		:return:
+		"""
+		if self._cs is None:
+			self._cs = self.get_feedforward()
+
+		return self._cs
+
+	@property
 	def ds(self):
+		"""
+		Return c list where control command u is
+			u = K(d - x)
+
+		:return:
+		"""
 		if self._ds is None:
 			self._ds = self.get_target()
 
@@ -202,6 +220,7 @@ class LQR(object):
 		self._Q = _Q
 
 		self._ds = None
+		self._cs = None
 
 	def get_target(self):
 		ds = []
@@ -210,6 +229,14 @@ class LQR(object):
 			ds += [np.linalg.inv(self._S[t].dot(self.A)).dot(self._v[t])]
 
 		return np.array(ds)
+
+	def get_feedforward(self):
+		cs = []
+
+		for t in range(0, self.horizon-1):
+			cs += [self._Kv[t].dot(self._v[t+1])]
+
+		return np.array(cs)
 
 	def get_seq(self, xi0, return_target=False):
 		xis = [xi0]
@@ -233,6 +260,57 @@ class LQR(object):
 		else:
 			return np.array(xis), np.array(us)
 
+class GMMLQR(LQR):
+	"""
+	LQR with a GMM cost on the state, approximation to be checked
+	"""
+
+	def __init__(self, *args, **kwargs):
+		self._full_gmm_xi = None
+		LQR.__init__(self, *args, **kwargs)
+
+	@property
+	def full_gmm_xi(self):
+		"""
+		Distribution of state
+		:return:
+		"""
+		return self._full_gmm_xi
+
+	@full_gmm_xi.setter
+	def full_gmm_xi(self, value):
+		"""
+		:param value 		[pbd.GMM] or [(pbd.GMM, list)]
+		"""
+		self._full_gmm_xi = value
+
+	def ricatti(self, x0, n_best=None):
+		costs = []
+
+		if isinstance(self._full_gmm_xi, pbd.MTMM):
+			full_gmm = self.full_gmm_xi.get_matching_gmm()
+		else:
+			full_gmm = self.full_gmm_xi
+
+		if n_best is not None:
+			log_prob_components = self.full_gmm_xi.log_prob_components(x0)
+			a = np.sort(log_prob_components, axis=0)[-n_best - 1][0]
+
+		for i in range(self.full_gmm_xi.nb_states):
+			if n_best is not None and log_prob_components[i] <a:
+				costs += [-np.inf]
+			else:
+				self.gmm_xi = full_gmm, [i for j in range(self.horizon)]
+				LQR.ricatti(self)
+				xis, us = self.get_seq(x0)
+				costs += [np.sum(self.gmm_u.log_prob(us) + self.full_gmm_xi.log_prob(xis))]
+
+		max_lqr = np.argmax(costs)
+		self.gmm_xi = full_gmm, [max_lqr for j in range(self.horizon)]
+		LQR.ricatti(self)
+
+
+
 class PoGLQR(LQR):
 	"""
 	Implementation of LQR with Product of Gaussian as described in
@@ -247,7 +325,7 @@ class PoGLQR(LQR):
 		self.B = B
 		self.nb_dim = nb_dim
 		self.dt = dt
-		
+
 		self._s_xi, self._s_u = None, None
 		self._x0 = None
 
@@ -421,42 +499,13 @@ class PoGLQR(LQR):
 		self._mvn_sol_xi, self._mvn_sol_u = None, None
 		self._seq_xi, self._seq_u = None, None
 
-
-class SparsePoGLQR(PoGLQR):
 	@property
-	def mvn_u(self):
-		"""
-		Distribution of control input
-		:return:
-		"""
-		return self._mvn_u
-	@mvn_u.setter
-	def mvn_u(self, value):
-		"""
-		:param value 		[float] or [pbd.MVN]
-		"""
-		# resetting solution
-		self._mvn_sol_xi = None
-		self._mvn_sol_u = None
-		self._seq_u = None
-		self._seq_xi = None
+	def horizon(self):
+		return self._horizon
 
-		if isinstance(value, pbd.MVN):
-			self._mvn_u = value
-		else:
-			self._mvn_u = pbd.SparseMVN(
-				mu=np.zeros(self.u_dim), lmbda=10 ** value * ss.eye(self.u_dim))
+	@horizon.setter
+	def horizon(self, value):
+		self.reset_params()
 
-	@property
-	def s_u(self):
-		if self._s_u is None:
-			self._s_xi, self._s_u = lifted_transfer_matrix(self.A, self.B,
-				horizon=self.horizon, dt=self.dt, nb_dim=self.nb_dim, sparse=True)
-		return self._s_u
-	@property
-	def s_xi(self):
-		if self._s_xi is None:
-			self._s_xi, self._s_u = lifted_transfer_matrix(self.A, self.B,
-				horizon=self.horizon, dt=self.dt, nb_dim=self.nb_dim, sparse=True)
 
-		return self._s_xi
+		self._horizon = value

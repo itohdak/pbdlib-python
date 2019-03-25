@@ -27,6 +27,8 @@ class Model(object):
 		self._has_finish_state = False
 		self._has_init_state = False
 
+		self._log_normalization = None
+
 	@property
 	def has_finish_state(self):
 		return self._has_finish_state
@@ -34,6 +36,28 @@ class Model(object):
 	@property
 	def has_init_state(self):
 		return self._has_init_state
+
+	def regularize(self, reg):
+		"""
+
+		:param reg: is as
+			float: isotopric std deviation
+			np.array() rank 1: std deviation diagonal
+			np.array() rank 2: covariance matrix
+
+		:return:
+		"""
+		new_model = Model(nb_states=self.nb_states, nb_dim=self.nb_dim)
+		new_model.mu = self.mu
+
+		if isinstance(reg, float):
+			new_model.sigma = self.sigma + np.eye(self.sigma.shape[-1])[None] * reg ** 2
+		elif isinstance(reg, np.ndarray) and reg.ndim == 1:
+			new_model.sigma = self.sigma + np.diag(reg**2)[None]
+		else:
+			new_model.sigma = self.sigma + reg[None]
+
+		return new_model
 
 	@property
 	def reg(self):
@@ -126,6 +150,7 @@ class Model(object):
 		self._lmbda = None
 		self._sigma_chol = None
 		self._sigma = value
+		self._log_normalization = None
 
 	@property
 	def lmbda(self):
@@ -144,12 +169,18 @@ class Model(object):
 		self._sigma = None  # reset sigma
 		self._sigma_chol = None
 		self._lmbda = value
+		self._log_normalization = None
 
 	def get_dep_mask(self, deps):
-		mask = np.zeros((self.nb_dim, self.nb_dim))
+		mask = np.eye(self.nb_dim)
 
 		for dep in deps:
-			mask[dep, dep] = 1.
+			if isinstance(dep, slice):
+				mask[dep, dep] = 1.
+			elif isinstance(dep, list):
+				dGrid = np.ix_(dep, dep)
+				mask[dGrid] = 1.
+
 
 		return mask
 
@@ -213,6 +244,25 @@ class Model(object):
 
 		return np.sum(xs, axis=0)
 
+	def get_linear_conditional(self, dim_in, dim_out):
+		mu_in, sigma_in = self.get_marginal(dim_in)
+		mu_out, sigma_out = self.get_marginal(dim_out)  # get marginal distribution of x_out
+
+		# get conditional distribution of x_out given x_in for each states p(x_out|x_in, k)
+		_, sigma_in_out = self.get_marginal(dim_in, dim_out)
+
+
+		inv_sigma_in_in = np.linalg.inv(
+			sigma_in)
+		inv_sigma_out_in = np.einsum('aji,ajk->aik', sigma_in_out, inv_sigma_in_in)
+
+		As = inv_sigma_out_in
+		bs = mu_out - np.matmul(inv_sigma_out_in, mu_in[:, :, None])[:, :, 0]
+
+		sigma_est = (sigma_out - np.matmul(inv_sigma_out_in, sigma_in_out))
+
+		return As, bs, sigma_est
+
 	def condition(self, data_in, dim_in, dim_out, h=None, return_gmm=False):
 		"""
 
@@ -258,8 +308,9 @@ class Model(object):
 			sigma_est += [sigma_out[i] - inv_sigma_out_in[-1].dot(sigma_in_out[i])]
 
 		mu_est, sigma_est = (np.asarray(mu_est), np.asarray(sigma_est))
+
 		if return_gmm:
-			return  mu_est, sigma_est
+			return  h, mu_est, sigma_est
 		# return np.mean(mu_est, axis=0)
 		else:
 
