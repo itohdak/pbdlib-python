@@ -32,7 +32,7 @@ If pip is not install, you can get it that way:
 
 Launch jupyter server with:
 
-    jupyter notebook tutorial/
+    jupyter notebook notebooks/
 
 Then navigate through folders and click on desired notebook.
 
@@ -41,6 +41,14 @@ Then navigate through folders and click on desired notebook.
 | pbdlib - basics.ipynb| Overview of the main functionalities of pbdlib.|
 | pbdlib - lqr.ipynb| Linear quadratic regulator to regerate trajectories.|
 | pbdlib - Multiple coordinate systems.ipynb| This example shows how motions can adapt to various positions and orientations of objects by projecting the demonstrations in several coordinate systems.|
+
+
+### MEMMO related examples
+
+Launch jupyter server with:
+
+    jupyter notebook notebooks/MEMMO/
+
 
 ## User interface for recording data with the mouse
 
