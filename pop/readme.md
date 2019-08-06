@@ -1,4 +1,8 @@
+# Bayesian Gaussian Mixture Model for Robotic Policy Imitation [\[pdf\]](https://arxiv.org/abs/1904.10716)
+
 ## Video
+
+[![IMAGE ALT TEXT](http://img.youtube.com/vi/90tp3vwOiDE/0.jpg)](https://www.youtube.com/watch?v=90tp3vwOiDE "Video Title")
 
 ## Codes
 
