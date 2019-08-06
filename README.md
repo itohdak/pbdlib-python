@@ -1,5 +1,11 @@
-# pbdlib
+### Papers-related pages
 
+If you came there reading one of the following works, please directly go to the related page.
+
+- [Bayesian Gaussian mixture model for robotic policy imitation](https://gitlab.idiap.ch/rli/pbdlib-python/blob/master/pop/readme.md)
+
+
+# pbdlib
 
 Pbdlib is a python library for robot programming by demonstration. The goal is to provide users with an easy to use library of algorithms that can be used to learn movement primitives using probabilistic tools.
 
