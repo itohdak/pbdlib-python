@@ -19,3 +19,17 @@ Following these instructions install the library without copying the files, allo
 If pip is not install, you can get it that way:
 
     sudo apt-get install python-pip
+
+### Run notebooks
+
+Launch jupyter server with:
+
+    cd pbdlib-python/pop
+    jupyter notebook
+
+Then click on desired notebook.
+
+| Filename | Description |
+|----------|-------------|
+| Test Bayesian GMM - Policy - Time dependent LQR | - |
+| Test Bayesian GMM - Position - Velocity Product | - |
