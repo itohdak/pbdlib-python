@@ -33,3 +33,17 @@ Then click on desired notebook.
 |----------|-------------|
 | Test Bayesian GMM - Policy - Time dependent LQR | - |
 | Test Bayesian GMM - Position - Velocity Product | - |
+
+### Recording demonstrations with the mouse
+
+### Additional installation
+
+    sudo apt-get intall python-tk
+
+### Usage
+
+    cd pbdlib-python/notebooks
+    python record_demo.py -p /path_to_pbdlib/pop/data/tests -f filename
+
+You can click on move the mouse on the left panel to record demonstrations. Press "h" for help. Save with "q".
+
