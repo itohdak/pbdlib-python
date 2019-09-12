@@ -11,8 +11,8 @@ np.set_printoptions(precision=2)
 from scipy.io import loadmat # loading data from matlab
 
 def load_sample_data():
-    filename = 'reach_target'
-    # filename = '../../../test/data/1'
+    # filename = 'reach_target'
+    filename = '../../../test/data/hoge'
 
     pbd_path = os.path.dirname(pbd.__file__) + '/data/gui/'
 
@@ -129,7 +129,7 @@ def product():
 def reproduction():
     demos_x, demos_dx, demos_xdx, demos_A_xdx, demos_b_xdx, demos_xdx_augm, demos_xdx_f = load_sample_data()
     model = learn_model(demos_xdx_augm, demos_xdx_f)
-    demo_idx = 4
+    demo_idx = 0
 
     nbcol = 5
     fig, ax = plt.subplots(ncols=nbcol, nrows=np.ceil(float(len(demos_x))/nbcol).astype(np.int))
@@ -163,6 +163,8 @@ def reproduction():
         pbd.plot_gmm(_prod.mu, _prod.sigma, swap=True, ax=ax[i], dim=[0, 1], color='gold')
 
         ax[i].plot(demos_x[i][:, 0], demos_x[i][:, 1], 'k--', lw=2)
+
+        demo_idx += 1
 
     plt.tight_layout()
     plt.show()
