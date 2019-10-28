@@ -75,13 +75,16 @@ class HMM(GMM):
 		self.priors = np.concatenate([self.priors, np.zeros(1)], axis=0)
 		pass
 
-	def viterbi(self, demo, reg=False):
+	def viterbi(self, demo, reg=False, init_priors=None):
 		"""
 		Compute most likely sequence of state given observations
 
 		:param demo: 	[np.array([nb_timestep, nb_dim])]
 		:return:
 		"""
+
+                if init_priors is None:
+                        init_priors = self.init_priors
 
 		nb_data, dim = demo.shape if isinstance(demo, np.ndarray) else demo['x'].shape
 
@@ -92,7 +95,7 @@ class HMM(GMM):
 		_, logB = self.obs_likelihood(demo)
 
 		# forward pass
-		logDELTA[:, 0] = np.log(self.init_priors + realmin * reg) + logB[:, 0]
+		logDELTA[:, 0] = np.log(init_priors + realmin * reg) + logB[:, 0]
 
 		for t in range(1, nb_data):
 			for i in range(self.nb_states):
