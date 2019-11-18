@@ -816,7 +816,7 @@ def plot_gmm3d(ax, means, covars, n_points=20, n_rings=15, color='red', alpha=0.
 	''' Plot 3D gmm '''
 	n_states = means.shape[0]
 	for i in range(n_states):
-		print
+		# print
 		plot_gauss3d(ax, means[i,], covars[i,],
 					 n_points=n_points, n_rings=n_rings, color=color,
 					 alpha=alpha, linewidth=linewidth)

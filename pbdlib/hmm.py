@@ -132,7 +132,9 @@ class HMM(GMM):
 		return np.concatenate(t_resp)
 
 	def obs_likelihood(self, demo=None, dep=None, marginal=None, sample_size=200, demo_idx=None):
-		sample_size = demo.shape[0]
+                if isinstance(demo, np.ndarray):
+		        sample_size = demo.shape[0]
+
 		# emission probabilities
 		B = np.ones((self.nb_states, sample_size))
 
@@ -184,7 +186,7 @@ class HMM(GMM):
 
 		return self._alpha_tmp
 
-	def compute_messages(self, demo=None, dep=None, table=None, marginal=None, sample_size=200, demo_idx=None):
+	def compute_messages(self, demo=None, dep=None, table=None, marginal=None, sample_size=200, demo_idx=None, init_priors=None):
 		"""
 
 		:param demo: 	[np.array([nb_timestep, nb_dim])]
@@ -201,6 +203,9 @@ class HMM(GMM):
 			(can be used for time-series regression)
 		:return:
 		"""
+                if init_priors is None:
+                        init_priors = self.init_priors
+
 		if isinstance(demo, np.ndarray):
 			sample_size = demo.shape[0]
 		elif isinstance(demo, dict):
@@ -213,7 +218,7 @@ class HMM(GMM):
 
 		# forward variable alpha (rescaled)
 		alpha = np.zeros((self.nb_states, sample_size))
-		alpha[:, 0] = self.init_priors * B[:, 0]
+		alpha[:, 0] = init_priors * B[:, 0]
 
 		c = np.zeros(sample_size)
 		c[0] = 1.0 / np.sum(alpha[:, 0] + realmin)

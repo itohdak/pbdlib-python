@@ -138,7 +138,7 @@ class HSMM(HMM):
 		return gamma
 
 	def compute_messages(self, demo=None, dep=None, table=None, marginal=None, sample_size=200, p0=None):
-		if demo is None:
+		if isinstance(demo, np.ndarray):
 			sample_size = demo.shape[0]
 		elif isinstance(demo, dict):
 			sample_size = demo['x'].shape[0]
