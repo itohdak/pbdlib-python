@@ -91,7 +91,7 @@ class LQR(object):
 		if self.A is not None:
 			return self.A.shape[0]
 		else:
-			return self.nb_dim * 2
+			return self.nb_dim * 2 # set of [pos, velocity] are assumed.
 
 
 	@property
@@ -320,6 +320,9 @@ class PoGLQR(LQR):
 	"""
 
 	def __init__(self, A=None, B=None, nb_dim=2, dt=0.01, horizon=50):
+                """
+                :nb_dim: dimension of data
+                """
 		self._horizon = horizon
 		self.A = A
 		self.B = B
@@ -387,6 +390,12 @@ class PoGLQR(LQR):
 		assert self.mvn_u is not None, "Please specify a control input distribution"
 
 		if self._mvn_sol_u is None:
+                        # u = (\Gamma - R_s)^+ \Gamma \mu_u
+                        # self.mvn_xi : Q_s
+                        # self.s_u    : S_u
+                        # self.s_xi   : S_\zeta
+                        # self.mvn_u  : \mu_u
+                        # self.mvn_xi.inv_trans_s(self.s_u, self.s_xi.dot(self.x0)) : (\Gamma - R_s)^+ \Gamma
 			self._mvn_sol_u =  self.mvn_xi.inv_trans_s(
 				self.s_u, self.s_xi.dot(self.x0)) % self.mvn_u
 
@@ -452,6 +461,7 @@ class PoGLQR(LQR):
 	def mvn_u(self, value):
 		"""
 		:param value 		[float] or [pbd.MVN]
+                if value is float type, the precision matrix is initialized by that value.
 		"""
 		# resetting solution
 		self._mvn_sol_xi = None
@@ -509,3 +519,15 @@ class PoGLQR(LQR):
 
 
 		self._horizon = value
+
+        @property
+        def cost(self):
+                assert self._s_u is not None and self._s_xi is not None, "Solve LQR before"
+
+                mvn = self.mvn_xi.inv_trans_s(
+                        self.s_u, self.s_xi.dot(self.x0))
+                mu = np.linalg.pinv(self._s_u).dot(mvn._muT)
+                u = self._mvn_sol_u.mu
+                # print(mu, u, mvn.lmbda, self.mvn_u.lmbda)
+                return (mu - u).T.dot(mvn.lmbda).dot(mu - u) + u.T.dot(self.mvn_u.lmbda).dot(u)
+

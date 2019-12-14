@@ -75,7 +75,7 @@ class HMM(GMM):
 		self.priors = np.concatenate([self.priors, np.zeros(1)], axis=0)
 		pass
 
-	def viterbi(self, demo, reg=False, init_priors=None):
+	def viterbi(self, demo, reg=False, init_priors=None, return_value=False):
 		"""
 		Compute most likely sequence of state given observations
 
@@ -111,7 +111,10 @@ class HMM(GMM):
 		for t in range(nb_data - 2, -1, -1):
 			q[t] = PSI[q[t + 1], t + 1]
 
-		return q
+                if return_value:
+                        return q, np.max(logDELTA[:, -1])
+                else:
+		        return q
 
 	def split_kbins(self, demos):
 		t_sep = []
@@ -376,6 +379,7 @@ class HMM(GMM):
 
 		for it in range(nb_max_steps):
 
+                        # E-step
 			for n, demo in enumerate(demos):
 				s[n]['alpha'], s[n]['beta'], s[n]['gamma'], s[n]['zeta'], s[n]['c'] = HMM.compute_messages(self, demo, dep, table)
 
@@ -396,8 +400,8 @@ class HMM(GMM):
 					# Update covariances
 					Data_tmp = data - self.mu[i][:, None]
 					self.sigma[i] = np.einsum('ij,jk->ik',
-													np.einsum('ij,j->ij', Data_tmp,
-															  gamma2[i, :]), Data_tmp.T)
+								  np.einsum('ij,j->ij', Data_tmp,
+									    gamma2[i, :]), Data_tmp.T)
 					# Regularization
 					self.sigma[i] = self.sigma[i] + self.reg
 
@@ -461,7 +465,7 @@ class HMM(GMM):
 		print "EM did not converge"
 		return False
 
-	def score(self, demos):
+	def score(self, demos, marginal=None):
 		"""
 
 		:param demos:	[list of np.array([nb_timestep, nb_dim])]
@@ -469,7 +473,7 @@ class HMM(GMM):
 		"""
 		ll = []
 		for n, demo in enumerate(demos):
-			_, _, _, _, c = HMM.compute_messages(self, demo)
+			_, _, _, _, c = HMM.compute_messages(self, demo, marginal=marginal)
 			ll += [np.sum(np.log(c))]
 
 		return ll
@@ -492,3 +496,4 @@ class HMM(GMM):
 	@Trans.setter
 	def Trans(self, value):
 		self.trans = value
+

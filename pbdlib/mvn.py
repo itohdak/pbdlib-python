@@ -16,7 +16,8 @@ class MVN(object):
 			Mean vector
 		:param sigma: 	np.array([nb_dim, nb_dim])
 			Covariance matrix
-		:param lmbda: 	np.array([nb_dim, nb_dim])
+		:param l
+mbda: 	np.array([nb_dim, nb_dim])
 			Precision matrix
 		:param lmbda_ns:
 		:param sigma_cv:
@@ -189,9 +190,9 @@ class MVN(object):
 		:return:
 		"""
 		mvn = type(self)(nb_dim=A.shape[1])
-		mvn._muT = self.mu - b
-		mvn._lmbdaT = A.T.dot(self.lmbda)
-		mvn.lmbda = A.T.dot(self.lmbda).dot(A)
+		mvn._muT = self.mu - b                 # \mu_s - S_\zeta \zeta_0
+		mvn._lmbdaT = A.T.dot(self.lmbda)      # S_u^\top Q_s
+		mvn.lmbda = A.T.dot(self.lmbda).dot(A) # \Lambda = S_u^\top Q_s S_u
 
 		return mvn
 
@@ -268,10 +269,10 @@ class MVN(object):
 		"""
 
 		prod = type(self)()
-		prod.lmbda = self.lmbda + other.lmbda
-		prod.sigma = np.linalg.inv(prod.lmbda)
+		prod.lmbda = self.lmbda + other.lmbda  # \Lambda + R_s
+		prod.sigma = np.linalg.inv(prod.lmbda) # (\Lambda + R_s)^{-1}
 
-		prod.mu = prod.sigma.dot(self.lmbdaT.dot(self.muT) + other.lmbdaT.dot(other.muT))
+		prod.mu = prod.sigma.dot(self.lmbdaT.dot(self.muT) + other.lmbdaT.dot(other.muT)) # eq.(4.16)
 
 		return prod
 

@@ -145,14 +145,15 @@ class GMM(Model):
 
 		return gmm
 
-	def concatenate_gaussian(self, q, get_mvn=True, reg=None):
+	def concatenate_gaussian(self, q, get_mvn=True, reg=None, t=None, R=None):
 		"""
 		Get a concatenated-block-diagonal replication of the GMM with sequence of state
 		given by q.
 
 		:param q: 			[list of int]
 		:param get_mvn: 	[bool]
-
+                :param t: [np.array(dim)] or None
+                :param R: [np.array(dim, dim)] or None
 
 		:return:
 		"""
@@ -160,10 +161,17 @@ class GMM(Model):
 			if not get_mvn:
 				return np.concatenate([self.mu[i] for i in q]), block_diag(*[self.sigma[i] for i in q])
 			else:
-				mvn = MVN()
-				mvn.mu = np.concatenate([self.mu[i] for i in q])
-				mvn._sigma = block_diag(*[self.sigma[i] for i in q])
-				mvn._lmbda = block_diag(*[self.lmbda[i] for i in q])
+                                if t is not None and R is not None:
+                                        Rb = block_diag(R, R)
+                                        mvn = MVN()
+                                        mvn.mu = np.concatenate([self.mu[i].dot(Rb) + np.hstack([t, np.zeros(len(t))]) for i in q])
+                                        mvn._sigma = block_diag(*[self.sigma[i].dot(Rb) for i in q])
+                                        mvn._lmbda = block_diag(*[self.lmbda[i] for i in q])
+                                else:
+                                        mvn = MVN()
+                                        mvn.mu = np.concatenate([self.mu[i] for i in q])
+                                        mvn._sigma = block_diag(*[self.sigma[i] for i in q])
+                                        mvn._lmbda = block_diag(*[self.lmbda[i] for i in q])
 
 				return mvn
 		else:
