@@ -9,6 +9,7 @@ import pbdlib as pbd
 np.set_printoptions(precision=2)
 
 from scipy.io import loadmat # loading data from matlab
+import argparse
 
 def load_sample_data():
     datapath = os.path.dirname(pbd.__file__) + '/data/gui/'
@@ -156,12 +157,12 @@ def lqr(letter='C'):
     plt.xlabel('timestep');
     plt.show()
 
-def solve_lqr(letter='C'):
+def solve_lqr(letter='C', dt=0.01):
     demos_x, demos_dx, demos_xdx, model = hmm(letter=letter, gui=False)
     demo_idx = 3
     sq = model.viterbi(demos_xdx[demo_idx])
 
-    lqr = pbd.PoGLQR(nb_dim=2, dt=0.01, horizon=demos_xdx[demo_idx].shape[0])
+    lqr = pbd.PoGLQR(nb_dim=2, dt=dt, horizon=demos_xdx[demo_idx].shape[0])
     lqr.mvn_xi = model.concatenate_gaussian(sq)
     lqr.mvn_u = -4.
     lqr.x0 = demos_xdx[demo_idx][0]
@@ -194,7 +195,21 @@ def solve_lqr(letter='C'):
 
 
 if __name__ == '__main__':
+    arg_fmt = argparse.RawDescriptionHelpFormatter
+    parser = argparse.ArgumentParser(formatter_class=arg_fmt)
+    parser.add_argument(
+        '-f', '--filename', dest='filename', type=str,
+        default='', help='filename for demos'
+    )
+    args = parser.parse_args()
+    if args.filename == '':
+        print('No file selected. Use alphabet C.')
+        solve_lqr()
+    else:
+        solve_lqr('./data/' + args.filename + '.npy', dt=0.05)
+
     # hmm('./data/1.npy')
-    solve_lqr('./data/10.npy')
+    # solve_lqr('./data/10.npy')
+    # solve_lqr('./data/output.npy', dt=0.05)
     # solve_lqr('Z')
 
